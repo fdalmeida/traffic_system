@@ -29,7 +29,7 @@ const TrafficDetails = () => {
         return;
       }
 
-      const response = await axios.get(`http://localhost:5050/api/traffic/${id}`, {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/traffic/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -79,7 +79,7 @@ const TrafficDetails = () => {
         : null;
   
       const response = await axios.post(
-        `http://localhost:5050/api/traffic/${id}/followup`,
+        `${import.meta.env.VITE_API_URL}/api/traffic/${id}/followup`,
         {
           description: newFollowup.description,
           responsible_return: newFollowup.responsible_return,

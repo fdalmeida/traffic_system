@@ -13,7 +13,8 @@ const Login = () => {
     setError(""); // Limpa erros anteriores
 
     try {
-      const response = await axios.post("http://localhost:5050/api/login", {
+      const API_URL = import.meta.env.VITE_API_URL;
+      const response = await axios.post(`${API_URL}/login`, {
         username,
         password,
       });
