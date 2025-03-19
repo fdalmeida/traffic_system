@@ -4,7 +4,8 @@
   "description": "Backend para sistema de tráfego",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "heroku-postbuild": "cd ../frontend && npm install && npm run build"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
