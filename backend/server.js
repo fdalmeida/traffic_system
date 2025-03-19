@@ -625,7 +625,11 @@ app.get('/api/contacts', authenticateToken, async (req, res) => {
 // ---------------------------------------
 //           Inicia o Servidor
 // ---------------------------------------
-const PORT = process.env.PORT || 5050;
+app.get("/", (req, res) => {
+  res.send("API rodando corretamente.");
+});
+
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`🟢 Servidor rodando na porta ${PORT}`);
+  console.log(`🟢 Servidor rodando na porta ${PORT}`);
 });
