@@ -162,16 +162,7 @@ app.get('/api/accounts', authenticateToken, async (req, res) => {
 });
 
 // Listar situações
-//app.get('/api/statuses', authenticateToken, async (req, res) => {
-//  try {
-//    const { rows } = await pool.query("SELECT id, status_name FROM tb_status ORDER BY status_name ASC");
-//    res.json(rows);
-//  } catch (error) {
-//    console.error("Erro ao buscar situações:", error);
-//    res.status(500).json({ error: "Erro ao buscar situações" });
-//  }
-//});
-app.get('/api/statuses', async (req, res) => {
+app.get('/api/statuses', authenticateToken, async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT id, status_name FROM tb_status ORDER BY status_name ASC");
     res.json(rows);
