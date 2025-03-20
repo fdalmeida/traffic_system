@@ -623,14 +623,21 @@ app.get('/api/contacts', authenticateToken, async (req, res) => {
     }
 });
 
+const path = require("path");
+
+// Servir os arquivos estáticos do frontend
+app.use(express.static(path.join(__dirname, "../frontend/dist")));
+
+// Todas as rotas que não forem da API servirão o React
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
+});
+
 // ---------------------------------------
 //           Inicia o Servidor
 // ---------------------------------------
-app.get("/", (req, res) => {
-  res.send("API rodando corretamente.");
-});
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🟢 Servidor rodando na porta ${PORT}`);
 });
+
