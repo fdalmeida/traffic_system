@@ -20,6 +20,7 @@ app.use(express.json());
 // ---------------------------------------
 //           Conexão com o Banco
 // ---------------------------------------
+console.log("🔍 DATABASE_URL:", process.env.DATABASE_URL);
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
