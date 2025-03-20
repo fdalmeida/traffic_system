@@ -13,7 +13,9 @@ const Login = () => {
     setError(""); // Limpa erros anteriores
 
     try {
-      const API_URL = import.meta.env.VITE_API_URL;
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      console.log("🚀 API_URL no Login:", API_URL); // <-- Adicione esta linha aqui
+
       const response = await axios.post(`${API_URL}/login`, {
         username,
         password,

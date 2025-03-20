@@ -70,20 +70,24 @@ const TrafficList = () => {
   // -------------------- FETCHS --------------------
   const fetchTraffic = async () => {
     try {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        navigate("/login");
-        return;
-      }
-      const response = await axios.get("${import.meta.env.VITE_API_URL}/api/traffic", {
-        headers: { Authorization: `Bearer ${token}` },
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+  
+      console.log("🚀 API_URL no TrafficList:", import.meta.env.VITE_API_URL);
+      console.log("🚀 Buscando tráfegos em:", `${API_URL}/traffic`);
+  
+      const response = await axios.get(`${API_URL}/traffic`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
       });
-      setTraffic(response.data || []);
-      setFilteredTraffic(response.data || []);
+  
+      console.log("📌 API Response:", response.data);
+  
+      setTraffic(Array.isArray(response.data) ? response.data : []);
+      setFilteredTraffic(Array.isArray(response.data) ? response.data : []);
     } catch (error) {
-      console.error("Erro ao buscar tráfegos:", error.response?.data || error.message);
+      console.error("❌ Erro ao buscar tráfegos:", error.response?.data || error.message);
     }
   };
+    
 
   const fetchUserLevel = async () => {
     try {
