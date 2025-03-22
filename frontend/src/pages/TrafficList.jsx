@@ -96,7 +96,8 @@ const TrafficList = () => {
         navigate("/login");
         return;
       }
-      const response = await axios.get("${import.meta.env.VITE_API_URL}/api/user-level", {
+      
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/user-level`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setUserLevel(response.data.level_id);
@@ -110,10 +111,10 @@ const TrafficList = () => {
       const token = localStorage.getItem("token");
       if (!token) return;
       const [accRes, stsRes] = await Promise.all([
-        axios.get("${import.meta.env.VITE_API_URL}/api/accounts", {
+        axios.get(`${import.meta.env.VITE_API_URL}/api/accounts`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get("${import.meta.env.VITE_API_URL}/api/statuses", {
+        axios.get(`${import.meta.env.VITE_API_URL}/api/statuses`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -128,7 +129,7 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      const response = await axios.get("${import.meta.env.VITE_API_URL}/api/contacts", {
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/contacts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setAllContacts(response.data || []);
@@ -146,7 +147,7 @@ const TrafficList = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const linkedContacts = response.data.linkedContactIds || [];
-      const allContactsRes = await axios.get("${import.meta.env.VITE_API_URL}/api/contacts", {
+      const allContactsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/contacts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setContacts(allContactsRes.data || []);
@@ -221,7 +222,7 @@ const TrafficList = () => {
         return;
       }
       const response = await axios.post(
-        "${import.meta.env.VITE_API_URL}/api/traffic",
+        `${import.meta.env.VITE_API_URL}/api/traffic`,
         {
           subject: newTraffic.subject,
           description: newTraffic.description,
