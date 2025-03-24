@@ -442,25 +442,40 @@ app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
 // ---------------------------------------
 // Atualiza o status para 5 (Cancelado), insere um acompanhamento padrão e envia notificações.
 app.put('/api/traffic/:id/cancel', authenticateToken, async (req, res) => {
-    try {
-      const trafficId = Number(req.params.id);
-      const userId = req.user.id;
-      await pool.query("UPDATE tb_traffic SET id_status = 5 WHERE id = $1", [trafficId]);
-      const userResult = await pool.query("SELECT name FROM tb_traffic_users WHERE id = $1", [userId]);
-      const userName = userResult.rows.length > 0 ? userResult.rows[0].name : "Desconhecido";
-      const followupText = `Tráfego cancelado por ${userName} em ${new Date().toLocaleDateString('pt-BR')}.`;
-      await pool.query(
-        `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
-         VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Cancelado')`,
-        [trafficId, userId, followupText]
-      );
-      await enviarEmailCancelamento(trafficId, userName);
-      res.json({ message: "Tráfego cancelado com sucesso." });
-    } catch (error) {
-      console.error("Erro ao cancelar tráfego:", error);
-      res.status(500).json({ error: "Erro ao cancelar tráfego." });
+  try {
+    const trafficId = Number(req.params.id);
+    const userId = req.user.id;
+    
+    // Atualiza o status do tráfego para 5 (Cancelado)
+    const updateResult = await pool.query(
+      "UPDATE tb_traffic SET id_status = 5 WHERE id = $1 RETURNING *",
+      [trafficId]
+    );
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: "Tráfego não encontrado." });
     }
-  });
+    
+    // Obtém o nome do usuário que está cancelando
+    const userResult = await pool.query("SELECT name FROM tb_traffic_users WHERE id = $1", [userId]);
+    const userName = userResult.rows.length > 0 ? userResult.rows[0].name : "Desconhecido";
+    
+    // Cria um acompanhamento informando o cancelamento
+    const followupText = `Tráfego cancelado por ${userName} em ${new Date().toLocaleDateString('pt-BR')}.`;
+    await pool.query(
+      `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
+       VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Cancelado')`,
+      [trafficId, userId, followupText]
+    );
+    
+    // Chama a função que envia o e-mail de cancelamento aos contatos vinculados
+    await enviarEmailCancelamento(trafficId, userName);
+    
+    res.json({ message: "Tráfego cancelado com sucesso." });
+  } catch (error) {
+    console.error("Erro ao cancelar tráfego:", error);
+    res.status(500).json({ error: "Erro ao cancelar tráfego." });
+  }
+});
   
 // ---------------------------------------
 //           Rotas de Contatos
