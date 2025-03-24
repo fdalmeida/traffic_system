@@ -296,6 +296,103 @@ app.post('/api/traffic', authenticateToken, async (req, res) => {
 });
 
 // ---------------------------------------
+//           Rota para atualizar tráfego com acompanhamento e envio de e-mail
+// --------------------------------------- 
+app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
+  try {
+    const trafficId = Number(req.params.id);
+    const { delivery_date, account_id, status_id, contacts } = req.body;
+    
+    // Validação básica
+    if (!delivery_date || !account_id || !status_id) {
+      return res.status(400).json({ error: "Campos obrigatórios ausentes." });
+    }
+    
+    // Busca os dados atuais do tráfego
+    const currentResult = await pool.query("SELECT * FROM tb_traffic WHERE id = $1", [trafficId]);
+    if (currentResult.rows.length === 0) {
+      return res.status(404).json({ error: "Tráfego não encontrado." });
+    }
+    const currentTraffic = currentResult.rows[0];
+    
+    // Compara os campos para montar a descrição das alterações
+    let changeDescription = "";
+    
+    // Comparação da data de entrega
+    const oldDeliveryDate = currentTraffic.delivery_date;
+    const oldDeliveryStr = new Date(oldDeliveryDate).toISOString().split("T")[0];
+    if (delivery_date !== oldDeliveryStr) {
+      changeDescription += `<p><strong>Data de Entrega:</strong> <span style="color:gray;">${new Date(oldDeliveryDate).toLocaleDateString('pt-BR')}</span> → <mark>${new Date(delivery_date).toLocaleDateString('pt-BR')}</mark></p>`;
+    }
+    
+    // Comparação da conta
+    if (account_id != currentTraffic.id_account) {
+      const oldAccountName = await getAccountName(currentTraffic.id_account);
+      const newAccountName = await getAccountName(account_id);
+      changeDescription += `<p><strong>Conta:</strong> <span style="color:gray;">${oldAccountName}</span> → <mark>${newAccountName}</mark></p>`;
+    }
+    
+    // Comparação do status
+    if (status_id != currentTraffic.id_status) {
+      const oldStatusName = await getStatusName(currentTraffic.id_status);
+      const newStatusName = await getStatusName(status_id);
+      changeDescription += `<p><strong>Status:</strong> <span style="color:gray;">${oldStatusName}</span> → <mark>${newStatusName}</mark></p>`;
+    }
+    
+    // Comparação dos contatos (opcional)
+    if (contacts) {
+      const currentContactsResult = await pool.query("SELECT id_contact FROM tb_traffic_contacts WHERE id_traffic = $1", [trafficId]);
+      const oldContacts = currentContactsResult.rows.map(r => r.id_contact);
+      if (JSON.stringify(oldContacts.sort()) !== JSON.stringify(contacts.sort())) {
+        changeDescription += `<p><strong>Contatos:</strong> <span style="color:gray;">[${oldContacts.join(", ")}]</span> → <mark>[${contacts.join(", ")}]</mark></p>`;
+      }
+    }
+    
+    if (!changeDescription) {
+      changeDescription = "<p>Nenhuma alteração detectada.</p>";
+    }
+    
+    // Atualiza o tráfego
+    const updateQuery = `
+      UPDATE tb_traffic
+      SET delivery_date = $1,
+          id_account = $2,
+          id_status = $3
+      WHERE id = $4
+      RETURNING *
+    `;
+    const updateResult = await pool.query(updateQuery, [delivery_date, account_id, status_id, trafficId]);
+    
+    // Atualiza os contatos, se fornecidos
+    if (contacts && Array.isArray(contacts)) {
+      await pool.query("DELETE FROM tb_traffic_contacts WHERE id_traffic = $1", [trafficId]);
+      for (const contactId of contacts) {
+        await pool.query("INSERT INTO tb_traffic_contacts (id_traffic, id_contact) VALUES ($1, $2)", [trafficId, contactId]);
+      }
+    }
+    
+    // Insere um acompanhamento com os detalhes da atualização
+    const followupDescription = `Tráfego atualizado por ${req.user.username} em ${new Date().toLocaleDateString('pt-BR')}.<br>` + changeDescription;
+    await pool.query(
+      `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
+       VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Atualizado')`,
+      [trafficId, req.user.id, followupDescription]
+    );
+    
+    // Envia o e-mail de atualização com os detalhes e os 3 últimos acompanhamentos (excluindo o acompanhamento atual)
+    await enviarEmailAtualizacaoTrafego(trafficId, {
+      changeDescription,
+      userName: req.user.username
+    });
+    
+    res.json({ message: "Tráfego atualizado com sucesso.", traffic: updateResult.rows[0] });
+  } catch (error) {
+    console.error("Erro ao atualizar tráfego:", error);
+    res.status(500).json({ error: "Erro ao atualizar tráfego." });
+  }
+});
+
+// ---------------------------------------
 //           Rota de CADASTRO DE ACOMPANHAMENTOS
 // ---------------------------------------
 app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
@@ -590,6 +687,88 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
     }
 };
 
+const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
+  try {
+    // Busca os dados atuais do tráfego
+    const trafficResult = await pool.query(`
+      SELECT t.subject, t.description, 
+             TO_CHAR(t.delivery_date, 'DD/MM/YYYY') AS delivery_date, 
+             a.account_name, s.status_name
+      FROM tb_traffic t
+      LEFT JOIN tb_accounts a ON t.id_account = a.id
+      LEFT JOIN tb_status s ON t.id_status = s.id
+      WHERE t.id = $1
+    `, [trafficId]);
+    if (trafficResult.rows.length === 0) return;
+    const traffic = trafficResult.rows[0];
+    
+    // Monta a lista dos contatos vinculados
+    const contactsResult = await pool.query(`
+      SELECT c.name, c.email
+      FROM tb_traffic_contacts tc
+      JOIN tb_contacts c ON tc.id_contact = c.id
+      WHERE tc.id_traffic = $1
+    `, [trafficId]);
+    if (contactsResult.rows.length === 0) return;
+    const contatosHTML = contactsResult.rows.map(c => `<li>${c.name} - ${c.email}</li>`).join("");
+    
+    // Busca os 3 últimos acompanhamentos, ignorando o mais recente (que é a atualização atual)
+    const followupsResult = await pool.query(`
+      SELECT f.description, TO_CHAR(f.event_date, 'DD/MM/YYYY') AS event_date, u.name AS user_name 
+      FROM tb_traffic_followups f
+      LEFT JOIN tb_traffic_users u ON f.user_id = u.id
+      WHERE f.traffic_id = $1
+      ORDER BY f.event_date DESC
+      OFFSET 1
+      LIMIT 3
+    `, [trafficId]);
+    let acompanhamentosHTML = "";
+    if (followupsResult.rows.length > 0) {
+      acompanhamentosHTML = followupsResult.rows
+        .map(a => `<p><strong>${a.event_date}</strong> | ${a.description} <em>(${a.user_name})</em></p>`)
+        .join("");
+    } else {
+      acompanhamentosHTML = "<p>Nenhum acompanhamento recente.</p>";
+    }
+    
+    // Monta o corpo final do e-mail
+    const corpoEmail = `
+      <p>Olá,</p>
+      <p>O tráfego <strong>${traffic.subject}</strong> foi atualizado.</p>
+      <h3>Detalhes da Atualização:</h3>
+      ${data.changeDescription}
+      <h3>Capa do Tráfego:</h3>
+      <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
+      <p><strong>Conta:</strong> ${traffic.account_name}</p>
+      <p><strong>Status:</strong> ${traffic.status_name}</p>
+      <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
+      <hr>
+      <h3>Contatos Vinculados:</h3>
+      <ul>${contatosHTML}</ul>
+      <hr>
+      <h3>Últimos Acompanhamentos (exceto a atualização atual):</h3>
+      ${acompanhamentosHTML}
+      <hr>
+      <p><em>Sistema de Tráfego | Agência macrobrasil.com | Felipe Almeida &amp; J.A.R.V.I.S | xFA | Versão Beta, 19 de março de 2025.</em></p>
+    `;
+    
+    // Envia o e-mail para cada contato
+    for (const contact of contactsResult.rows) {
+      await transporter.sendMail({
+        from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
+        to: contact.email,
+        subject: `OURO FINO | ${traffic.account_name.toUpperCase()} | TRÁFEGO ATUALIZADO [${trafficId}]`,
+        html: corpoEmail,
+      });
+      console.log(`📧 E-mail enviado com sucesso para ${contact.email}`);
+    }
+    console.log("✅ Todos os e-mails de atualização foram enviados com sucesso!");
+  } catch (error) {
+    console.error("Erro ao enviar e-mail de atualização:", error);
+  }
+};
+
+
 // ---------------------------------------
 //           Rotas de Contatos
 // ---------------------------------------
@@ -625,11 +804,14 @@ app.get('/api/contacts', authenticateToken, async (req, res) => {
 
 const path = require("path");
 
-// Servir os arquivos estáticos do frontend
+// Serve arquivos estáticos do frontend
 app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
-// Todas as rotas que não forem da API servirão o React
-app.get("*", (req, res) => {
+// Garante que apenas rotas que NÃO são API vão para o React
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    return next(); // deixa seguir para o backend
+  }
   res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
 });
 

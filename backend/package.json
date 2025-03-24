@@ -16,7 +16,7 @@
     "moment-timezone": "^0.5.47",
     "nodemailer": "^6.10.0",
     "pg": "^8.10.0",
-    "twilio": "^5.5.0"
+    "twilio": "^5.5.1"
   },
   "engines": {
     "node": "22.x"
