@@ -70,60 +70,70 @@ const TrafficList = () => {
   // -------------------- FETCHS --------------------
   const fetchTraffic = async () => {
     try {
+      const token = localStorage.getItem("token");
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
   
-      console.log("🚀 API_URL no TrafficList:", import.meta.env.VITE_API_URL);
+      console.log("🚀 API_URL no TrafficList:", API_URL);
       console.log("🚀 Buscando tráfegos em:", `${API_URL}/traffic`);
   
       const response = await axios.get(`${API_URL}/traffic`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
   
       console.log("📌 API Response:", response.data);
   
-      setTraffic(Array.isArray(response.data) ? response.data : []);
-      setFilteredTraffic(Array.isArray(response.data) ? response.data : []);
+      const dados = Array.isArray(response.data) ? response.data : [];
+      setTraffic(dados);
+      setFilteredTraffic(dados);
     } catch (error) {
       console.error("❌ Erro ao buscar tráfegos:", error.response?.data || error.message);
     }
   };
-    
-
+      
   const fetchUserLevel = async () => {
     try {
       const token = localStorage.getItem("token");
-      if (!token) {
-        navigate("/login");
-        return;
-      }
-      
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/user-level`, {
+      if (!token) return;
+  
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      console.log("📡 Buscando nível de acesso em:", `${API_URL}/user-level`);
+  
+      const response = await axios.get(`${API_URL}/user-level`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+  
+      console.log("🧪 Resposta completa do nível:", response.data);
       setUserLevel(response.data.level_id);
     } catch (error) {
-      console.error("Erro ao buscar nível do usuário:", error.response?.data || error.message);
+      console.error("❌ Erro ao buscar nível do usuário:", error.response?.data || error.message);
     }
-  };
+  };  
 
   const fetchAccountsAndStatuses = async () => {
     try {
       const token = localStorage.getItem("token");
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
       if (!token) return;
+  
       const [accRes, stsRes] = await Promise.all([
-        axios.get(`${import.meta.env.VITE_API_URL}/api/accounts`, {
+        axios.get(`${API_URL}/accounts`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${import.meta.env.VITE_API_URL}/api/statuses`, {
+        axios.get(`${API_URL}/statuses`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
+  
       setAccounts(accRes.data || []);
       setStatuses(stsRes.data || []);
+      console.log("✅ Contas recebidas:", accRes.data);
+      console.log("✅ Status recebidos:", stsRes.data);
+  
     } catch (error) {
-      console.error("Erro ao buscar contas e status:", error);
+      console.error("Erro ao buscar contas e status:", error.response?.data || error.message);
     }
   };
+  
 
   const fetchAllContacts = async () => {
     try {
@@ -157,36 +167,41 @@ const TrafficList = () => {
     }
   };
 
-  // -------------------- FILTRO LOCAL --------------------
+ // -------------------- FILTRO LOCAL --------------------
   const applyLocalFilters = () => {
-    let result = [...traffic];
+    let result = Array.isArray(traffic) ? [...traffic] : [];
 
     // Filtra por conta
     if (filterAccount) {
-      result = result.filter((t) => t.account_id === Number(filterAccount));
+      result = result.filter((t) => Number(t.account_id) === Number(filterAccount));
     }
+
     // Filtra por status
     if (filterStatus) {
-      result = result.filter((t) => t.status_id === Number(filterStatus));
+      result = result.filter((t) => Number(t.status_id) === Number(filterStatus));
     }
+
     // Filtra por data de entrega (início)
     if (filterDeliveryDateFrom) {
       result = result.filter((t) => {
-        const tDate = t.delivery_date.split("T")[0];
+        if (!t.delivery_date) return false;
+        const tDate = new Date(t.delivery_date).toISOString().split("T")[0];
         return tDate >= filterDeliveryDateFrom;
       });
     }
+
     // Filtra por data de entrega (fim)
     if (filterDeliveryDateTo) {
       result = result.filter((t) => {
-        const tDate = t.delivery_date.split("T")[0];
+        if (!t.delivery_date) return false;
+        const tDate = new Date(t.delivery_date).toISOString().split("T")[0];
         return tDate <= filterDeliveryDateTo;
       });
     }
 
     setFilteredTraffic(result);
 
-    // Define se o botão "Remover Filtro" aparece
+    // Mostra botão "Remover Filtro" se algum filtro estiver ativo
     setHasActiveFilters(
       !!filterAccount ||
       !!filterStatus ||
@@ -397,6 +412,24 @@ const TrafficList = () => {
     }
   }, [editTraffic]);
 
+  useEffect(() => {
+    const fetchAccounts = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/accounts`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        setAccounts(response.data || []);
+      } catch (error) {
+        console.error("Erro ao buscar contas:", error.response?.data || error.message);
+      }
+    };
+  
+    fetchAccounts();
+  }, []);
+  
   // Fecha modais com ESC
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -410,6 +443,10 @@ const TrafficList = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
+  console.log("🔍 showTrafficModal:", showTrafficModal);
+  console.log("🔍 showEditModal:", showEditModal);
+  console.log("🔍 userLevel:", userLevel);  // <= Aqui
+  
   // -------------------- RENDER --------------------
   return (
     <div className="min-h-screen bg-gray-50">
@@ -538,6 +575,8 @@ const TrafficList = () => {
           className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50"
           onClick={() => setShowFilters(false)}
         >
+          {console.log("🔍 Filtro visível")}
+          
           <div
             className="bg-white p-6 rounded-lg shadow-lg relative w-[90%] max-w-md mx-auto"
             onClick={(e) => e.stopPropagation()}
@@ -566,42 +605,43 @@ const TrafficList = () => {
               ))}
             </select>
 
-            {/* Filtro por Status */}
+            {/* Filtro por Situação */}
             <label className="block text-sm font-medium text-gray-400 mb-1">Situação</label>
             <select
               className="w-full p-2 border rounded mb-4"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
             >
-              <option value="">Todos os Status</option>
-              {statuses.map((st) => (
-                <option key={st.id} value={st.id}>
-                  {st.status_name}
+              <option value="">Todas as Situações</option>
+              {statuses.map((status) => (
+                <option key={status.id} value={status.id}>
+                  {status.name}
                 </option>
               ))}
             </select>
 
-            {/* Filtro por Data de Entrega (De) */}
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Data de Entrega (De)
-            </label>
-            <input
-              type="date"
-              className="w-full p-2 border rounded mb-4"
-              value={filterDeliveryDateFrom}
-              onChange={(e) => setFilterDeliveryDateFrom(e.target.value)}
-            />
+           
 
-            {/* Filtro por Data de Entrega (Até) */}
-            <label className="block text-sm font-medium text-gray-400 mb-1">
-              Data de Entrega (Até)
-            </label>
-            <input
-              type="date"
-              className="w-full p-2 border rounded mb-4"
-              value={filterDeliveryDateTo}
-              onChange={(e) => setFilterDeliveryDateTo(e.target.value)}
-            />
+            {/* Filtro por Data de Entrega */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-400 mb-1">Data de Entrega (de)</label>
+              <input
+                type="date"
+                className="w-full p-2 border rounded"
+                value={filterDeliveryDateFrom}
+                onChange={(e) => setFilterDeliveryDateFrom(e.target.value)}
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-400 mb-1">Data de Entrega (até)</label>
+              <input
+                type="date"
+                className="w-full p-2 border rounded"
+                value={filterDeliveryDateTo}
+                onChange={(e) => setFilterDeliveryDateTo(e.target.value)}
+              />
+            </div>
 
             <div className="flex gap-2">
               {hasActiveFilters && (

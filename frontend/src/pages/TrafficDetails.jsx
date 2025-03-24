@@ -29,10 +29,15 @@ const TrafficDetails = () => {
         return;
       }
 
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/traffic/${id}`, {
+      console.log("🔑 Token enviado:", token);
+      console.log("📡 URL chamada:", `${import.meta.env.VITE_API_URL}/api/traffic/${id}`);
+      
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+
+      const response = await axios.get(`${API_URL}/traffic/${id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
+      
       console.log("Resposta da API (Tela 2):", response.data);
 
       if (response.data) {
@@ -78,8 +83,10 @@ const TrafficDetails = () => {
         ? new Date(newFollowup.event_date).toISOString().split("T")[0]
         : null;
   
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+
       const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/api/traffic/${id}/followup`,
+        `${API_URL}/traffic/${id}/followup`,
         {
           description: newFollowup.description,
           responsible_return: newFollowup.responsible_return,
@@ -87,7 +94,7 @@ const TrafficDetails = () => {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
+            
       if (response.status === 201) {
         setNewFollowup({ event_date: today, description: "", responsible_return: "" });
         setShowFollowupModal(false);
