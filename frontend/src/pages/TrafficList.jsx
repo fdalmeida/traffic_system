@@ -6,12 +6,13 @@ import { FaFilter, FaTimes, FaTrash, FaEdit } from "react-icons/fa";
 const TrafficList = () => {
   const navigate = useNavigate();
 
-  // -------------------- ESTADOS PRINCIPAIS --------------------
+  // Define o estado inicial de userLevel como -1 (valor placeholder)
+  const [userLevel, setUserLevel] = useState(-1);
+
   const [traffic, setTraffic] = useState([]);
   const [filteredTraffic, setFilteredTraffic] = useState([]);
   const [showFilters, setShowFilters] = useState(false);
-  const [userLevel, setUserLevel] = useState(null);
-
+ 
   // -------------------- SWIPE (apenas nível 1) --------------------
   const [swipedId, setSwipedId] = useState(null);
   const touchStartXRef = useRef(0);
@@ -73,18 +74,14 @@ const TrafficList = () => {
       const token = localStorage.getItem("token");
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
   
-      console.log("🚀 API_URL no TrafficList:", API_URL);
-      console.log("🚀 Buscando tráfegos em:", `${API_URL}/traffic`);
-  
       const response = await axios.get(`${API_URL}/traffic`, {
         headers: { Authorization: `Bearer ${token}` },
       });
   
-      console.log("📌 API Response:", response.data);
-  
       const dados = Array.isArray(response.data) ? response.data : [];
       setTraffic(dados);
-      setFilteredTraffic(dados);
+      setFilteredTraffic(dados.filter(item => ![2, 5, 6].includes(item.status_id)));
+
     } catch (error) {
       console.error("❌ Erro ao buscar tráfegos:", error.response?.data || error.message);
     }
@@ -94,25 +91,22 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-  
-      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
-      console.log("📡 Buscando nível de acesso em:", `${API_URL}/user-level`);
+        const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
   
       const response = await axios.get(`${API_URL}/user-level`, {
         headers: { Authorization: `Bearer ${token}` },
       });
   
-      console.log("🧪 Resposta completa do nível:", response.data);
       setUserLevel(response.data.level_id);
     } catch (error) {
       console.error("❌ Erro ao buscar nível do usuário:", error.response?.data || error.message);
     }
-  };  
+  };    
 
   const fetchAccountsAndStatuses = async () => {
     try {
       const token = localStorage.getItem("token");
-      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      const API_URL = import.meta.env?.VITE_API_URL ?? "https://trafficsystem-def333809a1f.herokuapp.com/api";
       if (!token) return;
   
       const [accRes, stsRes] = await Promise.all([
@@ -126,8 +120,6 @@ const TrafficList = () => {
   
       setAccounts(accRes.data || []);
       setStatuses(stsRes.data || []);
-      console.log("✅ Contas recebidas:", accRes.data);
-      console.log("✅ Status recebidos:", stsRes.data);
   
     } catch (error) {
       console.error("Erro ao buscar contas e status:", error.response?.data || error.message);
@@ -139,25 +131,27 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/contacts`, {
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      const response = await axios.get(`${API_URL}/contacts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setAllContacts(response.data || []);
     } catch (error) {
       console.error("Erro ao buscar contatos:", error);
     }
-  };
+  };  
 
   const fetchTrafficContacts = async (trafficId) => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
       const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/api/traffic/${trafficId}/contacts`,
+        `${API_URL}/traffic/${trafficId}/contacts`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const linkedContacts = response.data.linkedContactIds || [];
-      const allContactsRes = await axios.get(`${import.meta.env.VITE_API_URL}/api/contacts`, {
+      const allContactsRes = await axios.get(`${API_URL}/contacts`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setContacts(allContactsRes.data || []);
@@ -165,7 +159,7 @@ const TrafficList = () => {
     } catch (error) {
       console.error("Erro ao buscar contatos do tráfego:", error);
     }
-  };
+  };  
 
  // -------------------- FILTRO LOCAL --------------------
   const applyLocalFilters = () => {
@@ -236,9 +230,11 @@ const TrafficList = () => {
         alert("Usuário não autenticado. Faça login novamente.");
         return;
       }
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      
       const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/api/traffic`,
-        {
+      `${API_URL}/traffic`, // Remove o "/api" extra aqui
+      {
           subject: newTraffic.subject,
           description: newTraffic.description,
           account_id: Number(newTraffic.account_id),
@@ -271,8 +267,10 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-      await axios.put(
-        `${import.meta.env.VITE_API_URL}/api/traffic/${editTraffic.id}`,
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      
+      const response = await axios.put(
+        `${API_URL}/traffic/${editTraffic.id}`,
         {
           delivery_date: editTraffic.delivery_date,
           account_id: editTraffic.account_id,
@@ -281,39 +279,42 @@ const TrafficList = () => {
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
       setShowEditModal(false);
       fetchTraffic();
     } catch (error) {
       console.error("Erro ao salvar alterações do tráfego:", error);
+      alert("Erro ao salvar alterações do tráfego. Tente novamente.");
     }
-  };
+  };   
 
-  // -------------------- CANCELAMENTO DE TRÁFEGO --------------------
-  const handleCancelTraffic = async (trafficId) => {
-    if (!window.confirm("Tem certeza que deseja cancelar este tráfego?")) return;
+  // -------------------- EXCLUSÃO DE TRÁFEGO --------------------
+  const handleExcludeTraffic = async (trafficId) => {
+    if (!window.confirm("Tem certeza que deseja excluir este tráfego?")) return;
     try {
       const token = localStorage.getItem("token");
       if (!token) {
         alert("Usuário não autenticado. Faça login novamente.");
         return;
       }
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
       const response = await axios.put(
-        `${import.meta.env.VITE_API_URL}/api/traffic/${trafficId}/cancel`,
+        `${API_URL}/traffic/${trafficId}/exclude`,
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (response.status === 200) {
-        alert("Tráfego cancelado com sucesso.");
+        alert("Tráfego excluído com sucesso.");
         fetchTraffic();
       } else {
-        alert("Erro ao cancelar tráfego. Tente novamente.");
+        alert("Erro ao excluir tráfego. Tente novamente.");
       }
     } catch (error) {
-      console.error("Erro ao cancelar tráfego:", error);
-      alert("Erro ao cancelar tráfego. Verifique o console.");
+      console.error("Erro ao excluir tráfego:", error);
+      alert("Erro ao excluir tráfego. Verifique o console.");
     }
   };
-
+  
   // -------------------- CONTATOS (NOVA TAREFA/EDIÇÃO) --------------------
   const handleAddContact = () => {
     const foundContact = allContacts.find(
@@ -443,10 +444,6 @@ const TrafficList = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  console.log("🔍 showTrafficModal:", showTrafficModal);
-  console.log("🔍 showEditModal:", showEditModal);
-  console.log("🔍 userLevel:", userLevel);  // <= Aqui
-  
   // -------------------- RENDER --------------------
   return (
     <div className="min-h-screen bg-gray-50">
@@ -530,7 +527,8 @@ const TrafficList = () => {
                         className="w-1/2 bg-red-500 text-white flex items-center justify-center"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleCancelTraffic(t.id);
+                          handleExcludeTraffic(t.id)
+                          ;
                         }}
                       >
                         <FaTrash size={20} />
@@ -557,10 +555,12 @@ const TrafficList = () => {
         {/* Botão Novo (flutuante) – se userLevel=1 e não há modal aberto */}
         {!(showTrafficModal || showEditModal) && userLevel === 1 && (
           <div className="fixed bottom-0 left-0 right-0 bg-white shadow p-2 z-50">
+            
             <div className="max-w-md mx-auto">
               <button
                 className="w-full bg-blue-500 text-white py-2 rounded"
                 onClick={() => setShowTrafficModal(true)}
+                
               >
                 Novo
               </button>
@@ -575,8 +575,6 @@ const TrafficList = () => {
           className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50"
           onClick={() => setShowFilters(false)}
         >
-          {console.log("🔍 Filtro visível")}
-          
           <div
             className="bg-white p-6 rounded-lg shadow-lg relative w-[90%] max-w-md mx-auto"
             onClick={(e) => e.stopPropagation()}
@@ -613,14 +611,14 @@ const TrafficList = () => {
               onChange={(e) => setFilterStatus(e.target.value)}
             >
               <option value="">Todas as Situações</option>
-              {statuses.map((status) => (
-                <option key={status.id} value={status.id}>
-                  {status.name}
-                </option>
-              ))}
+              {statuses
+                .filter((status) => userLevel === 1 || status.id !== 6)
+                .map((status) => (
+                  <option key={status.id} value={status.id}>
+                    {status.status_name}
+                  </option>
+                ))}
             </select>
-
-           
 
             {/* Filtro por Data de Entrega */}
             <div className="mb-4">
