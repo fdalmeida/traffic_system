@@ -221,7 +221,9 @@ app.get('/api/traffic/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Cadastrar novo tráfego
+// --------------------------------------------------------------------------------------------------
+//           Rota para CADASTRAR Tráfego, com acompanhamento inicial e envio de e-mail
+// --------------------------------------------------------------------------------------------------
 app.post('/api/traffic', authenticateToken, async (req, res) => {
   try {
     if (req.user.level_id !== 1) {
@@ -295,9 +297,9 @@ app.post('/api/traffic', authenticateToken, async (req, res) => {
   }
 });
 
-// ---------------------------------------
-//           Rota para atualizar tráfego com acompanhamento e envio de e-mail
-// --------------------------------------- 
+// --------------------------------------------------------------------------------------------------
+//           Rota para ATUALIZAR Tráfego, com acompanhamento e envio de e-mail
+// --------------------------------------------------------------------------------------------------
 app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
@@ -392,9 +394,9 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// ---------------------------------------
-//           Rota de CADASTRO DE ACOMPANHAMENTOS
-// ---------------------------------------
+// --------------------------------------------------------------------------------------------------
+//           Rota de CADASTRO DE ACOMPANHAMENTOS, com envio de e-mail
+// --------------------------------------------------------------------------------------------------
 app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
     try {
       const trafficId = Number(req.params.id);
@@ -437,56 +439,15 @@ app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
     }
   });  
 
-// ---------------------------------------
-//           Rota de CANCELAMENTO
-// ---------------------------------------
-// Atualiza o status para 5 (Cancelado), insere um acompanhamento padrão e envia notificações.
-app.put('/api/traffic/:id/cancel', authenticateToken, async (req, res) => {
-  try {
-    const trafficId = Number(req.params.id);
-    const userId = req.user.id;
-    
-    // Atualiza o status do tráfego para 5 (Cancelado)
-    const updateResult = await pool.query(
-      "UPDATE tb_traffic SET id_status = 5 WHERE id = $1 RETURNING *",
-      [trafficId]
-    );
-    if (updateResult.rows.length === 0) {
-      return res.status(404).json({ error: "Tráfego não encontrado." });
-    }
-    
-    // Obtém o nome do usuário que está cancelando
-    const userResult = await pool.query("SELECT name FROM tb_traffic_users WHERE id = $1", [userId]);
-    const userName = userResult.rows.length > 0 ? userResult.rows[0].name : "Desconhecido";
-    
-    // Cria um acompanhamento informando o cancelamento
-    const followupText = `Tráfego cancelado por ${userName} em ${new Date().toLocaleDateString('pt-BR')}.`;
-    await pool.query(
-      `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
-       VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Cancelado')`,
-      [trafficId, userId, followupText]
-    );
-    
-    // Chama a função que envia o e-mail de cancelamento aos contatos vinculados
-    await enviarEmailCancelamento(trafficId, userName);
-    
-    res.json({ message: "Tráfego cancelado com sucesso." });
-  } catch (error) {
-    console.error("Erro ao cancelar tráfego:", error);
-    res.status(500).json({ error: "Erro ao cancelar tráfego." });
-  }
-});
-
-// ---------------------------------------
-//           Rota de CANCELAMENTO
-// ---------------------------------------
-// Atualiza o status para 6 (Excluído) e insere um acompanhamento padrão.
+// --------------------------------------------------------------------------------------------------
+//           Rota para EXCLUIR Tráfego, com acompanhamento, porém sem envio de e-mail
+// --------------------------------------------------------------------------------------------------
 app.put('/api/traffic/:id/exclude', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
     const userId = req.user.id;
     
-    // Somente nível 1 pode excluir
+    // Permitir exclusão somente para usuários de nível 1
     if (req.user.level_id !== 1) {
       return res.status(403).json({ error: "Acesso negado. Apenas nível 1 pode excluir tráfegos." });
     }
@@ -511,17 +472,14 @@ app.put('/api/traffic/:id/exclude', authenticateToken, async (req, res) => {
       [trafficId, userId, followupText]
     );
 
-    // Se quiser, você pode também enviar um e-mail, mas normalmente exclusão é definitiva e não manda notificação
-    // await enviarEmailExclusao(trafficId, userName);
-
     res.json({ message: "Tráfego excluído com sucesso." });
   } catch (error) {
     console.error("Erro ao excluir tráfego:", error);
     res.status(500).json({ error: "Erro ao excluir tráfego." });
   }
 });
-
   
+
 // ---------------------------------------
 //           Rotas de Contatos
 // ---------------------------------------
@@ -555,6 +513,7 @@ app.get('/api/contacts', authenticateToken, async (req, res) => {
     }
 });
 
+
 // ---------------------------------------
 //           Funções Auxiliares
 // ---------------------------------------
@@ -582,99 +541,83 @@ const getTrafficContacts = async (trafficId) => {
     return result.rows;
 };
 
-const enviarEmailCancelamento = async (trafficId, cancelledBy) => {
+const enviarEmailCriacaoTrafego = async (trafficId, data) => {
   try {
-    const trafficResult = await pool.query(`
+    console.log(`📌 [enviarEmailCriacaoTrafego] Iniciando envio de notificação para tráfego ID: ${trafficId}`);
+    const trafficResult = await pool.query(
+      `
       SELECT t.subject, t.description, 
              TO_CHAR(t.delivery_date, 'DD/MM/YYYY') AS delivery_date, 
-             a.account_name, s.status_name
+             a.account_name, s.status_name, t.id_status, t.open_date
       FROM tb_traffic t
       LEFT JOIN tb_accounts a ON t.id_account = a.id
       LEFT JOIN tb_status s ON t.id_status = s.id
       WHERE t.id = $1
-    `, [trafficId]);
-    if (trafficResult.rows.length === 0) return;
+      `,
+      [trafficId]
+    );
+    if (trafficResult.rows.length === 0) {
+      console.log(`[enviarEmailCriacaoTrafego] ⚠️ Nenhum tráfego encontrado com ID ${trafficId}`);
+      return;
+    }
     const traffic = trafficResult.rows[0];
-    const contactsResult = await pool.query(`
+
+    const contactsResult = await pool.query(
+      `
       SELECT c.name, c.email
       FROM tb_traffic_contacts tc
       JOIN tb_contacts c ON tc.id_contact = c.id
       WHERE tc.id_traffic = $1
-    `, [trafficId]);
+      `,
+      [trafficId]
+    );
     if (contactsResult.rows.length === 0) return;
-    const corpoEmail = `
-      <p>Olá,</p>
-      <p>Este é um aviso de que o tráfego <strong>${traffic.subject}</strong> foi <strong>CANCELADO</strong> por <strong>${cancelledBy}</strong> em ${new Date().toLocaleDateString('pt-BR')}.</p>
-      <ul>
-        <li><strong>Data de Entrega:</strong> ${traffic.delivery_date}</li>
-        <li><strong>Conta:</strong> ${traffic.account_name}</li>
-        <li><strong>Status:</strong> Cancelado</li>
-      </ul>
-      <p>Para mais informações, acesse o Sistema de Tráfego.</p>
-      <hr>
-      <p><em>Sistema de Tráfego | Agência macrobrasil.com | Felipe Almeida &amp; J.A.R.V.I.S | xFA | Versão Beta, 19 de março de 2025.</em></p>
-    `;
+
+    // Corpo do e-mail atualizado, com maior destaque para a comunicação do sistema
     for (const contact of contactsResult.rows) {
+      const corpoEmail = `
+        <p>Olá, <strong>${contact.name}</strong>,</p>
+        <p>Um novo tráfego foi registrado. Sua participação neste trabalho é 
+        fundamental para alcançarmos o resultado esperado.</p>
+        <p>Acompanhe tudo em tempo real pelo <strong>Traffic System</strong>.</p>  
+        
+        <h3>📌 Capa do Tráfego</h3>
+        <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
+        <p><strong>Conta:</strong> ${traffic.account_name}</p>
+        <p><strong>Status:</strong> ${traffic.status_name}</p>
+        <p><strong>Assunto:</strong> ${traffic.subject}</p>
+        <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
+        ${
+          data.acompanhamento_inicial
+            ? `<h3>🆕 Acompanhamento Inicial</h3>
+               <p>${data.acompanhamento_inicial.description.replace(/\n/g, "<br>")}</p>`
+            : ""
+        }
+        <hr>
+        <p>
+          <em>
+            Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
+            que garante transparência e qualidade em cada etapa do processo.
+          </em>
+        </p>
+        <p>    
+          <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | 
+          Felipe Almeida & Team | xFA vBeta 1</em>
+        </p>
+      `;
+
       await transporter.sendMail({
         from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
         to: contact.email,
-        subject: `OURO FINO | ${traffic.account_name.toUpperCase()} | TRÁFEGO CANCELADO [${trafficId}]`,
+        subject: `OURO FINO | ${traffic.account_name.toUpperCase()} | NOVO TRÁFEGO CRIADO [${trafficId}]`,
         html: corpoEmail,
       });
+      console.log(`📧 E-mail enviado com sucesso para ${contact.email}`);
     }
+    console.log("✅ Todos os e-mails foram enviados com sucesso!");
   } catch (error) {
-    console.error("Erro ao enviar e-mail de cancelamento:", error);
+    console.error("Erro ao enviar e-mail de criação:", error);
   }
-};
-
-const enviarEmailCriacaoTrafego = async (trafficId, data) => {
-    try {
-        console.log(`📌 [enviarEmailCriacaoTrafego] Iniciando envio de notificação para tráfego ID: ${trafficId}`);
-        const trafficResult = await pool.query(`
-            SELECT t.subject, t.description, 
-                   TO_CHAR(t.delivery_date, 'DD/MM/YYYY') AS delivery_date, 
-                   a.account_name, s.status_name
-            FROM tb_traffic t
-            LEFT JOIN tb_accounts a ON t.id_account = a.id
-            LEFT JOIN tb_status s ON t.id_status = s.id
-            WHERE t.id = $1
-        `, [trafficId]);
-        if (trafficResult.rows.length === 0) {
-            console.log(`[enviarEmailCriacaoTrafego] ⚠️ Nenhum tráfego encontrado com ID ${trafficId}`);
-            return;
-        }
-        const traffic = trafficResult.rows[0];
-        const contactsResult = await pool.query(`
-            SELECT c.name, c.email
-            FROM tb_traffic_contacts tc
-            JOIN tb_contacts c ON tc.id_contact = c.id
-            WHERE tc.id_traffic = $1
-        `, [trafficId]);
-        if (contactsResult.rows.length === 0) return;
-        for (const contact of contactsResult.rows) {
-            const corpoEmail = `
-                <p>Olá, <strong>${contact.name}</strong>,</p>
-                <p>Um novo tráfego foi criado no Sistema de Tráfego.</p>
-                <h3>Capa do Tráfego</h3>
-                <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
-                <p><strong>Conta:</strong> ${traffic.account_name}</p>
-                <p><strong>Status:</strong> ${traffic.status_name}</p>
-                <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
-                <hr>
-                <p><em>Sistema de Tráfego | Agência macrobrasil.com | Felipe Almeida &amp; J.A.R.V.I.S | xFA | Versão Beta, 19 de março de 2025.</em></p>
-            `;
-            await transporter.sendMail({
-                from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
-                to: contact.email,
-                subject: `OURO FINO | ${traffic.account_name.toUpperCase()} | NOVO TRÁFEGO CRIADO [${trafficId}]`,
-                html: corpoEmail,
-            });
-            console.log(`📧 E-mail enviado com sucesso para ${contact.email}`);
-        }
-        console.log("✅ Todos os e-mails foram enviados com sucesso!");
-    } catch (error) {
-        console.error("Erro ao enviar e-mail de criação:", error);
-    }
 };
 
 const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
@@ -700,39 +643,62 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
             LEFT JOIN tb_traffic_users u ON f.user_id = u.id
             WHERE f.traffic_id = $1 
             ORDER BY f.event_date DESC 
-            LIMIT 3
+            OFFSET 1 LIMIT 3
         `, [trafficId]);
+
         const acompanhamentos = acompanhamentosResult.rows
             .map(a => `<p><strong>${a.event_date}</strong> | ${a.description} <em>(${a.user_name})</em></p>`)
             .join("") || "<p>Nenhum acompanhamento recente.</p>";
+
         const contactsResult = await pool.query(`
             SELECT c.name, c.email
             FROM tb_traffic_contacts tc
             JOIN tb_contacts c ON tc.id_contact = c.id
             WHERE tc.id_traffic = $1
         `, [trafficId]);
+
         if (contactsResult.rows.length === 0) {
             console.log(`[enviarEmailNovoAcompanhamento] ⚠️ Nenhum contato encontrado para o tráfego ${trafficId}`);
             return;
         }
+        
         const recipients = contactsResult.rows;
         console.log("[enviarEmailNovoAcompanhamento] ✅ Contatos carregados:", recipients);
         for (const contact of recipients) {
             const corpoEmail = `
                 <p>Olá, <strong>${contact.name}</strong>,</p>
-                <p>Um novo acompanhamento foi registrado no Sistema de Tráfego da Agência macrobrasil.com. Confira os detalhes:</p>
+                <p>Um novo acompanhamento foi registrado no Tráfego 
+                [${trafficId}]. Sua atenção nesse momento é essencial para garantirmos o melhor resultado.</p> 
+                <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
+                
                 <h3>🆕 Novo Acompanhamento</h3>
                 <p><strong>${novoAcompanhamento.event_date}</strong> | ${novoAcompanhamento.description} <em>(${novoAcompanhamento.user_name})</em></p>
+                
                 <h3>📌 Capa do Tráfego</h3>
                 <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
                 <p><strong>Conta:</strong> ${traffic.account_name}</p>
                 <p><strong>Status:</strong> ${traffic.status_name}</p>
                 <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
-                <h3>📝 Últimos Acompanhamentos</h3>
-                ${acompanhamentos}
-                <p>Para saber mais, acesse o Sistema de Tráfego ou fale diretamente com o pessoal do Marketing ou da Agência macrobrasil.com.</p>
+                
                 <hr>
-                <p><em>Sistema de Tráfego | Agência macrobrasil.com | Felipe Almeida &amp; J.A.R.V.I.S | xFA | Versão Beta, 19 de março de 2025.</em></p>
+                <h3>📒 Contatos Vinculados:</h3>
+                <ul>${contatosHTML}</ul>
+                <hr>
+
+                <h3>💬 Últimos Acompanhamentos</h3>
+                ${acompanhamentos}
+                
+                <hr>
+                <p>
+                  <em>
+                    Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
+                    que garante transparência e qualidade em cada etapa do processo.
+                  </em>
+                </p>
+                <p>    
+                  <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | 
+                  Felipe Almeida & Team | xFA vBeta 1</em>
+                </p>
             `;
             await transporter.sendMail({
                 from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
@@ -779,8 +745,7 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
       LEFT JOIN tb_traffic_users u ON f.user_id = u.id
       WHERE f.traffic_id = $1
       ORDER BY f.event_date DESC
-      OFFSET 1
-      LIMIT 3
+      OFFSET 1 LIMIT 3
     `, [trafficId]);
     let acompanhamentosHTML = "";
     if (followupsResult.rows.length > 0) {
@@ -793,23 +758,37 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
     
     // Monta o corpo final do e-mail
     const corpoEmail = `
-      <p>Olá,</p>
-      <p>O tráfego <strong>${traffic.subject}</strong> foi atualizado.</p>
-      <h3>Detalhes da Atualização:</h3>
-      ${data.changeDescription}
-      <h3>Capa do Tráfego:</h3>
-      <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
-      <p><strong>Conta:</strong> ${traffic.account_name}</p>
-      <p><strong>Status:</strong> ${traffic.status_name}</p>
-      <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
-      <hr>
-      <h3>Contatos Vinculados:</h3>
-      <ul>${contatosHTML}</ul>
-      <hr>
-      <h3>Últimos Acompanhamentos (exceto a atualização atual):</h3>
-      ${acompanhamentosHTML}
-      <hr>
-      <p><em>Sistema de Tráfego | Agência macrobrasil.com | Felipe Almeida &amp; J.A.R.V.I.S | xFA | Versão Beta, 19 de março de 2025.</em></p>
+                <p>Olá, <strong>${contact.name}</strong>,</p>
+                <p>O Tráfego [${trafficId}] foi atualizado e sua atenção nesse momento é essencial
+                para garantirmos o melhor resultado.</p> 
+                <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
+                
+
+                <h3>Detalhes da Atualização:</h3>
+                ${data.changeDescription}
+
+                <h3>📌 Capa do Tráfego</h3>
+                <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
+                <p><strong>Conta:</strong> ${traffic.account_name}</p>
+                <p><strong>Status:</strong> ${traffic.status_name}</p>
+                <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
+                <hr>
+                <h3>📒 Contatos Vinculados:</h3>
+                <ul>${contatosHTML}</ul>
+                <hr>
+                <h3>💬 Últimos Acompanhamentos:</h3>
+                ${acompanhamentosHTML}
+                <hr>
+                <p>
+                  <em>
+                    Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
+                    que garante transparência e qualidade em cada etapa do processo.
+                  </em>
+                </p>
+                <p>    
+                  <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | 
+                  Felipe Almeida & Team | xFA vBeta 1</em>
+                </p>
     `;
     
     // Envia o e-mail para cada contato
