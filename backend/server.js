@@ -476,6 +476,51 @@ app.put('/api/traffic/:id/cancel', authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Erro ao cancelar tráfego." });
   }
 });
+
+// ---------------------------------------
+//           Rota de CANCELAMENTO
+// ---------------------------------------
+// Atualiza o status para 6 (Excluído) e insere um acompanhamento padrão.
+app.put('/api/traffic/:id/exclude', authenticateToken, async (req, res) => {
+  try {
+    const trafficId = Number(req.params.id);
+    const userId = req.user.id;
+    
+    // Somente nível 1 pode excluir
+    if (req.user.level_id !== 1) {
+      return res.status(403).json({ error: "Acesso negado. Apenas nível 1 pode excluir tráfegos." });
+    }
+
+    // Atualiza o status do tráfego para 6 (Excluído)
+    const updateResult = await pool.query(
+      "UPDATE tb_traffic SET id_status = 6 WHERE id = $1 RETURNING *",
+      [trafficId]
+    );
+    if (updateResult.rows.length === 0) {
+      return res.status(404).json({ error: "Tráfego não encontrado." });
+    }
+
+    // Registrar no acompanhamento
+    const userResult = await pool.query("SELECT name FROM tb_traffic_users WHERE id = $1", [userId]);
+    const userName = userResult.rows.length > 0 ? userResult.rows[0].name : "Desconhecido";
+    const followupText = `Tráfego excluído por ${userName} em ${new Date().toLocaleDateString('pt-BR')}.`;
+
+    await pool.query(
+      `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
+       VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Excluído')`,
+      [trafficId, userId, followupText]
+    );
+
+    // Se quiser, você pode também enviar um e-mail, mas normalmente exclusão é definitiva e não manda notificação
+    // await enviarEmailExclusao(trafficId, userName);
+
+    res.json({ message: "Tráfego excluído com sucesso." });
+  } catch (error) {
+    console.error("Erro ao excluir tráfego:", error);
+    res.status(500).json({ error: "Erro ao excluir tráfego." });
+  }
+});
+
   
 // ---------------------------------------
 //           Rotas de Contatos
