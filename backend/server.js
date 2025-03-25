@@ -582,11 +582,13 @@ const enviarEmailCriacaoTrafego = async (trafficId, data) => {
         <p>Acompanhe tudo em tempo real pelo <strong>Traffic System</strong>.</p>  
         
         <h3>📌 Capa do Tráfego</h3>
-        <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
-        <p><strong>Conta:</strong> ${traffic.account_name}</p>
-        <p><strong>Status:</strong> ${traffic.status_name}</p>
-        <p><strong>Assunto:</strong> ${traffic.subject}</p>
-        <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
+        <p>
+          <strong>Data de Entrega:</strong> ${traffic.delivery_date}</p><br>
+          <strong>Conta:</strong> ${traffic.account_name}</p><br>
+          <strong>Status:</strong> ${traffic.status_name}</p><br>
+          <strong>Assunto:</strong> ${traffic.subject}</p><br>
+          <strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}<br>
+        </p>
         ${
           data.acompanhamento_inicial
             ? `<h3>🆕 Acompanhamento Inicial</h3>
@@ -621,96 +623,101 @@ const enviarEmailCriacaoTrafego = async (trafficId, data) => {
 };
 
 const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
-    try {
-        console.log(`📌 [enviarEmailNovoAcompanhamento] Iniciando envio de notificação para tráfego ID: ${trafficId}`);
-        const trafficResult = await pool.query(`
-            SELECT t.subject, t.description, 
-                   TO_CHAR(t.delivery_date, 'DD/MM/YYYY') AS delivery_date, 
-                   a.account_name, s.status_name
-            FROM tb_traffic t
-            LEFT JOIN tb_accounts a ON t.id_account = a.id
-            LEFT JOIN tb_status s ON t.id_status = s.id
-            WHERE t.id = $1
-        `, [trafficId]);
-        if (trafficResult.rows.length === 0) {
-            console.log(`[enviarEmailNovoAcompanhamento] ⚠️ Nenhum tráfego encontrado com ID ${trafficId}`);
-            return;
-        }
-        const traffic = trafficResult.rows[0];
-        const acompanhamentosResult = await pool.query(`
-            SELECT f.description, TO_CHAR(f.event_date, 'DD/MM/YYYY') AS event_date, u.name AS user_name 
-            FROM tb_traffic_followups f
-            LEFT JOIN tb_traffic_users u ON f.user_id = u.id
-            WHERE f.traffic_id = $1 
-            ORDER BY f.event_date DESC 
-            OFFSET 1 LIMIT 3
-        `, [trafficId]);
-
-        const acompanhamentos = acompanhamentosResult.rows
-            .map(a => `<p><strong>${a.event_date}</strong> | ${a.description} <em>(${a.user_name})</em></p>`)
-            .join("") || "<p>Nenhum acompanhamento recente.</p>";
-
-        const contactsResult = await pool.query(`
-            SELECT c.name, c.email
-            FROM tb_traffic_contacts tc
-            JOIN tb_contacts c ON tc.id_contact = c.id
-            WHERE tc.id_traffic = $1
-        `, [trafficId]);
-
-        if (contactsResult.rows.length === 0) {
-            console.log(`[enviarEmailNovoAcompanhamento] ⚠️ Nenhum contato encontrado para o tráfego ${trafficId}`);
-            return;
-        }
-        
-        const recipients = contactsResult.rows;
-        console.log("[enviarEmailNovoAcompanhamento] ✅ Contatos carregados:", recipients);
-        for (const contact of recipients) {
-            const corpoEmail = `
-                <p>Olá, <strong>${contact.name}</strong>,</p>
-                <p>Um novo acompanhamento foi registrado no Tráfego 
-                [${trafficId}]. Sua atenção nesse momento é essencial para garantirmos o melhor resultado.</p> 
-                <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
-                
-                <h3>🆕 Novo Acompanhamento</h3>
-                <p><strong>${novoAcompanhamento.event_date}</strong> | ${novoAcompanhamento.description} <em>(${novoAcompanhamento.user_name})</em></p>
-                
-                <h3>📌 Capa do Tráfego</h3>
-                <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
-                <p><strong>Conta:</strong> ${traffic.account_name}</p>
-                <p><strong>Status:</strong> ${traffic.status_name}</p>
-                <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
-                
-                <hr>
-                <h3>📒 Contatos Vinculados:</h3>
-                <ul>${contatosHTML}</ul>
-                <hr>
-
-                <h3>💬 Últimos Acompanhamentos</h3>
-                ${acompanhamentos}
-                
-                <hr>
-                <p>
-                  <em>
-                    Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
-                    que garante transparência e qualidade em cada etapa do processo.
-                  </em>
-                </p>
-                <p>    
-                  <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | 
-                  Felipe Almeida & Team | xFA vBeta 1</em>
-                </p>
-            `;
-            await transporter.sendMail({
-                from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
-                to: contact.email,
-                subject: `OURO FINO | ${traffic.account_name.toUpperCase()} | NOVO ACOMPANHAMENTO [${trafficId}]`,
-                html: corpoEmail,
-            });
-            console.log(`📧 E-mail enviado com sucesso para ${contact.email}`);
-        }
-    } catch (error) {
-        console.error("🔴 Erro ao enviar e-mail de acompanhamento:", error);
+  try {
+    console.log(`📌 [enviarEmailNovoAcompanhamento] Iniciando envio de notificação para tráfego ID: ${trafficId}`);
+    const trafficResult = await pool.query(`
+      SELECT t.subject, t.description, 
+             TO_CHAR(t.delivery_date, 'DD/MM/YYYY') AS delivery_date, 
+             a.account_name, s.status_name
+      FROM tb_traffic t
+      LEFT JOIN tb_accounts a ON t.id_account = a.id
+      LEFT JOIN tb_status s ON t.id_status = s.id
+      WHERE t.id = $1
+    `, [trafficId]);
+    if (trafficResult.rows.length === 0) {
+      console.log(`[enviarEmailNovoAcompanhamento] ⚠️ Nenhum tráfego encontrado com ID ${trafficId}`);
+      return;
     }
+    const traffic = trafficResult.rows[0];
+
+    const acompanhamentosResult = await pool.query(`
+      SELECT f.description, TO_CHAR(f.event_date, 'DD/MM/YYYY') AS event_date, u.name AS user_name 
+      FROM tb_traffic_followups f
+      LEFT JOIN tb_traffic_users u ON f.user_id = u.id
+      WHERE f.traffic_id = $1 
+      ORDER BY f.event_date DESC 
+      OFFSET 1 LIMIT 3
+    `, [trafficId]);
+
+    const acompanhamentos = acompanhamentosResult.rows
+      .map(a => `<p><strong>${a.event_date}</strong> | ${a.description} <em>(${a.user_name})</em></p>`)
+      .join("") || "<p>Nenhum acompanhamento recente.</p>";
+
+    const contactsResult = await pool.query(`
+      SELECT c.name, c.email
+      FROM tb_traffic_contacts tc
+      JOIN tb_contacts c ON tc.id_contact = c.id
+      WHERE tc.id_traffic = $1
+    `, [trafficId]);
+    if (contactsResult.rows.length === 0) {
+      console.log(`[enviarEmailNovoAcompanhamento] ⚠️ Nenhum contato encontrado para o tráfego ${trafficId}`);
+      return;
+    }
+    
+    // Gera a lista HTML dos contatos vinculados
+    const contatosHTML = contactsResult.rows
+      .map(c => `<li>${c.name} - ${c.email}</li>`)
+      .join("");
+
+    const recipients = contactsResult.rows;
+    console.log("[enviarEmailNovoAcompanhamento] ✅ Contatos carregados:", recipients);
+
+    for (const contact of recipients) {
+      const corpoEmail = `
+        <p>Olá, <strong>${contact.name}</strong>,</p>
+        <p>Um novo acompanhamento foi registrado no Tráfego [${trafficId}]. Sua atenção nesse momento é essencial para garantirmos o melhor resultado.</p> 
+        <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
+        
+        <h3>🆕 Novo Acompanhamento</h3>
+        <p><strong>${novoAcompanhamento.event_date}</strong> | ${novoAcompanhamento.description} <em>(${novoAcompanhamento.user_name})</em></p>
+        
+        <h3>📌 Capa do Tráfego</h3>
+        <p>
+          <strong>Data de Entrega:</strong> ${traffic.delivery_date}<br>
+          <strong>Conta:</strong> ${traffic.account_name}<br>
+          <strong>Status:</strong> ${traffic.status_name}<br>
+          <strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}
+        </p>
+        
+        <hr>
+        <h3>📒 Contatos Vinculados:</h3>
+        <ul>${contatosHTML}</ul>
+        <hr>
+        <h3>💬 Últimos Acompanhamentos</h3>
+        ${acompanhamentos}
+        
+        <hr>
+        <p>
+          <em>
+            Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
+            que garante transparência e qualidade em cada etapa do processo.
+          </em>
+        </p>
+        <p>    
+          <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | Felipe Almeida & Team | xFA vBeta 1</em>
+        </p>
+      `;
+      await transporter.sendMail({
+        from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
+        to: contact.email,
+        subject: `OURO FINO | ${traffic.account_name.toUpperCase()} | NOVO ACOMPANHAMENTO [${trafficId}]`,
+        html: corpoEmail,
+      });
+      console.log(`📧 E-mail enviado com sucesso para ${contact.email}`);
+    }
+  } catch (error) {
+    console.error("🔴 Erro ao enviar e-mail de acompanhamento:", error);
+  }
 };
 
 const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
@@ -768,10 +775,12 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
                 ${data.changeDescription}
 
                 <h3>📌 Capa do Tráfego</h3>
-                <p><strong>Data de Entrega:</strong> ${traffic.delivery_date}</p>
-                <p><strong>Conta:</strong> ${traffic.account_name}</p>
-                <p><strong>Status:</strong> ${traffic.status_name}</p>
-                <p><strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}</p>
+                <p>
+                  <strong>Data de Entrega:</strong> ${traffic.delivery_date}</p><br>
+                  <strong>Conta:</strong> ${traffic.account_name}</p><br>
+                  <strong>Status:</strong> ${traffic.status_name}</p><br>
+                  <strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}
+                </p>
                 <hr>
                 <h3>📒 Contatos Vinculados:</h3>
                 <ul>${contatosHTML}</ul>
