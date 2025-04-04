@@ -23,7 +23,7 @@ export default defineConfig({
       '@': '/src',
     },
   },
-  define: {
-    'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL),
-  },
+ // define: {
+ //   'import.meta.env.VITE_API_URL': JSON.stringify(process.env.VITE_API_URL),
+ // },
 });

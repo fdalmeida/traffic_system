@@ -73,14 +73,14 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
-  
+//      console.log("VITE_API_URL no front:", import.meta.env.VITE_API_URL);
       const response = await axios.get(`${API_URL}/traffic`, {
         headers: { Authorization: `Bearer ${token}` },
       });
   
       const dados = Array.isArray(response.data) ? response.data : [];
       setTraffic(dados);
-      setFilteredTraffic(dados.filter(item => ![2, 5, 6].includes(item.status_id)));
+      setFilteredTraffic(dados.filter(item => ![3, 5, 6].includes(item.status_id)));
 
     } catch (error) {
       console.error("❌ Erro ao buscar tráfegos:", error.response?.data || error.message);
@@ -269,6 +269,15 @@ const TrafficList = () => {
       if (!token) return;
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
       
+      // Verifique os dados que serão enviados:
+      const payload = {
+        delivery_date: editTraffic.delivery_date,
+        account_id: editTraffic.account_id,
+        status_id: editTraffic.status_id,
+        contacts: selectedContacts,
+      };
+      console.log("Payload de edição:", payload);
+
       const response = await axios.put(
         `${API_URL}/traffic/${editTraffic.id}`,
         {
@@ -277,6 +286,7 @@ const TrafficList = () => {
           status_id: editTraffic.status_id,
           contacts: selectedContacts,
         },
+        
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -422,6 +432,7 @@ const TrafficList = () => {
             Authorization: `Bearer ${token}`,
           },
         });
+        // console.log("Resposta da API em /accounts:", response.data);
         setAccounts(response.data || []);
       } catch (error) {
         console.error("Erro ao buscar contas:", error.response?.data || error.message);
@@ -476,12 +487,13 @@ const TrafficList = () => {
               // Verifica se o tráfego está atrasado
               const isLate =
                 new Date(t.delivery_date) < new Date(todayISO) &&
-                t.status_id !== 2 &&
-                t.status_id !== 5;
+                t.status_id !== 3 &&
+                t.status_id !== 5 &&
+                t.status_id !== 6;
               const isSwiped = swipedId === t.id && canSwipe;
 
               // Alterna cor de fundo ou vermelho claro se atrasado
-              let bgClass = index % 2 === 0 ? "bg-white" : "bg-gray-50";
+              let bgClass = index % 2 === 0 ? "bg-gray-100" : "bg-white";
               if (isLate) {
                 bgClass = "bg-red-100";
               }
@@ -510,8 +522,8 @@ const TrafficList = () => {
                     <p>
                       <strong>Situação:</strong> {t.status_name}{" "}
                       {isLate && (
-                        <span className="ml-2 px-1 py-0.5 text-red-600 bg-yellow-200 rounded">
-                          Atrasado
+                        <span className="ml-1 px-1 py-0.5 text-red-700 bg-yellow-300 rounded">
+                          <strong>Atrasado</strong>
                         </span>
                       )}
                     </p>

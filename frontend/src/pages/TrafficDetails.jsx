@@ -24,13 +24,9 @@ const TrafficDetails = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) {
-        console.warn("Token não encontrado. Redirecionando para login...");
         navigate("/login");
         return;
       }
-
-      console.log("🔑 Token enviado:", token);
-      console.log("📡 URL chamada:", `${import.meta.env.VITE_API_URL}/api/traffic/${id}`);
       
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
 
@@ -38,8 +34,6 @@ const TrafficDetails = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      console.log("Resposta da API (Tela 2):", response.data);
-
       if (response.data) {
         setTraffic(response.data.traffic || {});
         setFollowups(response.data.followups || []);
@@ -73,11 +67,6 @@ const TrafficDetails = () => {
         alert("Usuário não autenticado. Faça login novamente.");
         return;
       }
-
-      console.log("📌 Enviando requisição para novo acompanhamento...");
-      console.log("🟢 Tráfego ID:", id);
-      console.log("🟢 Descrição:", newFollowup.description);
-      console.log("🟢 Devolutiva:", newFollowup.responsible_return);
 
       const formattedDate = newFollowup.event_date 
         ? new Date(newFollowup.event_date).toISOString().split("T")[0]
@@ -116,6 +105,14 @@ const TrafficDetails = () => {
     return <div className="text-center text-red-500 mt-6">{error}</div>;
   }
 
+ // Defina a variável isLate aqui, antes do return final
+  const isLate = traffic 
+  ? (new Date(traffic.delivery_date) < new Date(today) &&
+    traffic.status_id !== 2 &&
+    traffic.status_id !== 5 &&
+    traffic.status_id !== 6)
+  : false; 
+
   return (
     <div className="p-6">
       {/* Cabeçalho */}
@@ -132,7 +129,7 @@ const TrafficDetails = () => {
       </div>
 
       {/* Capa do Tráfego */}
-      <div className="bg-white shadow p-4 mb-4 rounded-lg">
+      <div className={ isLate ? "bg-red-100 shadow p-4 mb-4 rounded-lg" : "bg-white shadow p-4 mb-4 rounded-lg" }>
         <h2 className="text-xl font-bold">📂 Capa do Tráfego</h2>
         <p><strong>Conta:</strong> {traffic.account_name}</p>
         <p>
@@ -151,7 +148,14 @@ const TrafficDetails = () => {
         </p>
         <p><strong>Cliente:</strong> {traffic.client_name || "Não informado"}</p>
         <p><strong>Responsável:</strong> {traffic.responsible_name}</p>
-        <p><strong>Situação:</strong> {traffic.status_name}</p>
+        <p>
+          <strong>Situação:</strong> {traffic.status_name}{" "}
+          {isLate && (
+            <span className="ml-1 px-1 py-0.5 text-red-700 bg-yellow-300 rounded">
+              <strong>Atrasado</strong>
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Acompanhamentos */}
