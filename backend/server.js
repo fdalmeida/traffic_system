@@ -329,13 +329,13 @@ app.post('/api/traffic', authenticateToken, async (req, res) => {
   }
 });
 
-// Rota para ATUALIZAR Tráfego
 app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
     const { delivery_date, account_id, status_id, contacts } = req.body;
+    const newStatus = Number(status_id); // Converte para número
     
-    if (!delivery_date || !account_id || status_id == null) {
+    if (!delivery_date || !account_id || newStatus == null) {
       return res.status(400).json({ error: "Campos obrigatórios ausentes." });
     }
     
@@ -352,19 +352,19 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: "Tráfego Concluído ou Excluído não pode ser alterado." });
     }
     
-    // Valida a transição de status
-    const valid = validateStatusTransition(oldStatus, status_id, req.user.level_id);
+    // Valida a transição de status usando newStatus
+    const valid = validateStatusTransition(oldStatus, newStatus, req.user.level_id);
     if (!valid.ok) {
       return res.status(400).json({ error: valid.message });
     }
     
     // Se o novo status for Concluído (3), define confirmed_delivery_date com 24h a partir de agora
     let confirmedDeliveryDate = currentTraffic.confirmed_delivery_date;
-    if (status_id === 3 && oldStatus !== 3) {
+    if (newStatus === 3 && oldStatus !== 3) {
       confirmedDeliveryDate = moment().tz('America/Sao_Paulo').add(24, 'hours').format();
     }
     
-    // Monta a descrição das alterações
+    // Monta a descrição das alterações, utilizando newStatus quando necessário
     let changeDescription = "";
     // Comparação da data de entrega
     const oldDeliveryDate = currentTraffic.delivery_date;
@@ -379,9 +379,9 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
       changeDescription += `<p><strong>Conta:</strong> <span style="color:gray;">${oldAccountName}</span> → <mark>${newAccountName}</mark></p>`;
     }
     // Comparação do status
-    if (status_id != currentTraffic.id_status) {
+    if (newStatus !== currentTraffic.id_status) {
       const oldStatusName = await getStatusName(currentTraffic.id_status);
-      const newStatusName = await getStatusName(status_id);
+      const newStatusName = await getStatusName(newStatus);
       changeDescription += `<p><strong>Status:</strong> <span style="color:gray;">${oldStatusName}</span> → <mark>${newStatusName}</mark></p>`;
     }
     // Comparação dos contatos, se necessário
@@ -409,7 +409,7 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
     const updateResult = await pool.query(updateQuery, [
       delivery_date,
       account_id,
-      status_id,
+      newStatus,
       confirmedDeliveryDate,
       trafficId
     ]);
