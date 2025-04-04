@@ -134,6 +134,7 @@ app.get('/api/traffic', authenticateToken, async (req, res) => {
         t.subject, 
         t.description,
         t.summary_description,
+        t.confirmed_delivery_date,
         s.id AS status_id,
         s.status_name,
         t.id_account AS account_id,
@@ -185,6 +186,7 @@ app.get('/api/traffic/:id', authenticateToken, async (req, res) => {
         t.subject, 
         t.description, 
         t.summary_description,
+        t.confirmed_delivery_date,
         s.status_name,
         c.company AS client_name,
         a.account_name,
@@ -221,40 +223,79 @@ app.get('/api/traffic/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// --------------------------------------------------------------------------------------------------
-//           Rota para CADASTRAR Tráfego, com acompanhamento inicial e envio de e-mail
-// --------------------------------------------------------------------------------------------------
+// ---------------------------------------
+//           Função para validar transições de status
+// ---------------------------------------
+function validateStatusTransition(oldStatus, newStatus, userLevel) {
+  // Status IDs:
+  // 1 = Futuro, 2 = Em andamento, 3 = Concluído (Finalizado), 4 = Paralisado, 5 = Cancelado, 6 = Excluído
+
+  if (oldStatus === 1) {
+    if (![2, 5].includes(newStatus)) {
+      return { ok: false, message: "Futuro só pode ir para Em andamento ou Cancelado." };
+    }
+  } else if (oldStatus === 2) {
+    if (![3, 4, 5].includes(newStatus)) {
+      return { ok: false, message: "Em andamento só pode ir para Concluído, Paralisado ou Cancelado." };
+    }
+  } else if (oldStatus === 4) {
+    if (![2, 5].includes(newStatus)) {
+      return { ok: false, message: "Paralisado só pode ir para Em andamento ou Cancelado." };
+    }
+  } else if (oldStatus === 5) {
+    if (![1, 6].includes(newStatus)) {
+      return { ok: false, message: "Cancelado só pode ir para Futuro (resgate) ou Excluído." };
+    }
+    if (userLevel !== 1) {
+      return { ok: false, message: "Apenas administradores podem resgatar ou excluir tráfegos cancelados." };
+    }
+  }
+  return { ok: true };
+}
+
+// ---------------------------------------
+//           Rotas de Criação e Atualização de Tráfego
+// ---------------------------------------
+
+// Rota para CRIAR Tráfego
 app.post('/api/traffic', authenticateToken, async (req, res) => {
   try {
+    // Apenas administradores (nível 1) podem criar tráfegos
     if (req.user.level_id !== 1) {
       return res.status(403).json({ error: "Acesso negado. Apenas administradores podem criar tráfegos." });
     }
-    const { open_date, subject, description, account_id, status_id, delivery_date, contacts } = req.body;
+    const { open_date, subject, description, account_id, delivery_date, contacts } = req.body;
     const id_responsible = req.user.id;
-    if (!open_date || !subject || !description || !account_id || !status_id || !delivery_date) {
+    if (!open_date || !subject || !description || !account_id || !delivery_date) {
       return res.status(400).json({ error: "Todos os campos são obrigatórios." });
     }
+    // Força o status para Futuro (ID=1)
+    const status_id = 1;
     const clientResult = await pool.query("SELECT id_client FROM tb_accounts WHERE id = $1", [account_id]);
     if (clientResult.rows.length === 0) {
       return res.status(400).json({ error: "Conta não encontrada." });
     }
     const id_client = clientResult.rows[0].id_client;
     console.log("📌 Dados recebidos no backend:", req.body);
-    const result = await pool.query(
-      `INSERT INTO tb_traffic (open_date, subject, description, summary_description, id_account, id_status, delivery_date, id_client, id_responsible)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
-      [
-        open_date,
-        subject,
-        description,
-        description.substring(0, 100) + "...",
-        account_id,
-        status_id,
-        delivery_date,
-        id_client,
-        id_responsible
-      ]
-    );
+    const insertQuery = `
+      INSERT INTO tb_traffic (
+        open_date, subject, description, summary_description, 
+        id_account, id_status, delivery_date, id_client, id_responsible
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
+    `;
+    const result = await pool.query(insertQuery, [
+      open_date,
+      subject,
+      description,
+      description.substring(0, 100) + "...",
+      account_id,
+      status_id, // Forçado a Futuro
+      delivery_date,
+      id_client,
+      id_responsible
+    ]);
     const newTrafficId = result.rows[0].id;
     console.log("✅ Tráfego criado no banco:", newTrafficId);
     const userNameResult = await pool.query("SELECT name FROM tb_traffic_users WHERE id = $1", [id_responsible]);
@@ -265,48 +306,36 @@ app.post('/api/traffic', authenticateToken, async (req, res) => {
        VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'PSC')`,
       [newTrafficId, id_responsible, acompanhamentoTexto]
     );
-    console.log(`✅ Acompanhamento inicial criado para o tráfego ${newTrafficId}`);
-    const nomeConta = await getAccountName(account_id);
-    const nomeStatus = await getStatusName(status_id);
-    const acompanhamentoInicial = await pool.query(
-      `SELECT description, TO_CHAR(event_date, 'DD/MM/YYYY') AS delivery_date 
-       FROM tb_traffic_followups 
-       WHERE traffic_id = $1 ORDER BY event_date ASC LIMIT 1`,
-      [newTrafficId]
-    );
-    const acompanhamento = acompanhamentoInicial.rows.length > 0 ? acompanhamentoInicial.rows[0] : null;
+    // Vincula contatos se houver
     if (contacts && contacts.length > 0) {
       for (const contactId of contacts) {
         await pool.query("INSERT INTO tb_traffic_contacts (id_traffic, id_contact) VALUES ($1, $2)", [newTrafficId, contactId]);
         console.log(`➕ Contato ${contactId} vinculado ao tráfego ${newTrafficId}`);
       }
     }
+    // Envio de e-mail de criação (função existente)
     await enviarEmailCriacaoTrafego(newTrafficId, {
       subject,
       description,
       delivery_date: new Date(delivery_date).toLocaleDateString('pt-BR'),
-      account_name: nomeConta,
-      status_name: nomeStatus,
-      acompanhamento_inicial: acompanhamento
+      account_name: await getAccountName(account_id),
+      status_name: await getStatusName(status_id)
     });
     console.log("📧 E-mail enviado com sucesso!");
-    res.status(201).json({ message: "Tráfego criado com sucesso.", id: newTrafficId });
+    return res.status(201).json({ message: "Tráfego criado com sucesso.", id: newTrafficId });
   } catch (error) {
     console.error("🔴 Erro ao criar tráfego:", error);
-    res.status(500).json({ error: "Erro ao criar tráfego." });
+    return res.status(500).json({ error: "Erro ao criar tráfego." });
   }
 });
 
-// --------------------------------------------------------------------------------------------------
-//           Rota para ATUALIZAR Tráfego, com acompanhamento e envio de e-mail
-// --------------------------------------------------------------------------------------------------
+// Rota para ATUALIZAR Tráfego
 app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
     const { delivery_date, account_id, status_id, contacts } = req.body;
     
-    // Validação básica
-    if (!delivery_date || !account_id || !status_id) {
+    if (!delivery_date || !account_id || status_id == null) {
       return res.status(400).json({ error: "Campos obrigatórios ausentes." });
     }
     
@@ -316,32 +345,46 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: "Tráfego não encontrado." });
     }
     const currentTraffic = currentResult.rows[0];
+    const oldStatus = currentTraffic.id_status;
     
-    // Compara os campos para montar a descrição das alterações
+    // Bloqueia alterações se o tráfego já estiver Concluído (3) ou Excluído (6)
+    if (oldStatus === 3 || oldStatus === 6) {
+      return res.status(403).json({ error: "Tráfego Concluído ou Excluído não pode ser alterado." });
+    }
+    
+    // Valida a transição de status
+    const valid = validateStatusTransition(oldStatus, status_id, req.user.level_id);
+    if (!valid.ok) {
+      return res.status(400).json({ error: valid.message });
+    }
+    
+    // Se o novo status for Concluído (3), define confirmed_delivery_date com 24h a partir de agora
+    let confirmedDeliveryDate = currentTraffic.confirmed_delivery_date;
+    if (status_id === 3 && oldStatus !== 3) {
+      confirmedDeliveryDate = moment().tz('America/Sao_Paulo').add(24, 'hours').format();
+    }
+    
+    // Monta a descrição das alterações
     let changeDescription = "";
-    
     // Comparação da data de entrega
     const oldDeliveryDate = currentTraffic.delivery_date;
     const oldDeliveryStr = new Date(oldDeliveryDate).toISOString().split("T")[0];
     if (delivery_date !== oldDeliveryStr) {
       changeDescription += `<p><strong>Data de Entrega:</strong> <span style="color:gray;">${new Date(oldDeliveryDate).toLocaleDateString('pt-BR')}</span> → <mark>${new Date(delivery_date).toLocaleDateString('pt-BR')}</mark></p>`;
     }
-    
     // Comparação da conta
     if (account_id != currentTraffic.id_account) {
       const oldAccountName = await getAccountName(currentTraffic.id_account);
       const newAccountName = await getAccountName(account_id);
       changeDescription += `<p><strong>Conta:</strong> <span style="color:gray;">${oldAccountName}</span> → <mark>${newAccountName}</mark></p>`;
     }
-    
     // Comparação do status
     if (status_id != currentTraffic.id_status) {
       const oldStatusName = await getStatusName(currentTraffic.id_status);
       const newStatusName = await getStatusName(status_id);
       changeDescription += `<p><strong>Status:</strong> <span style="color:gray;">${oldStatusName}</span> → <mark>${newStatusName}</mark></p>`;
     }
-    
-    // Comparação dos contatos (opcional)
+    // Comparação dos contatos, se necessário
     if (contacts) {
       const currentContactsResult = await pool.query("SELECT id_contact FROM tb_traffic_contacts WHERE id_traffic = $1", [trafficId]);
       const oldContacts = currentContactsResult.rows.map(r => r.id_contact);
@@ -349,7 +392,6 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
         changeDescription += `<p><strong>Contatos:</strong> <span style="color:gray;">[${oldContacts.join(", ")}]</span> → <mark>[${contacts.join(", ")}]</mark></p>`;
       }
     }
-    
     if (!changeDescription) {
       changeDescription = "<p>Nenhuma alteração detectada.</p>";
     }
@@ -359,11 +401,18 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
       UPDATE tb_traffic
       SET delivery_date = $1,
           id_account = $2,
-          id_status = $3
-      WHERE id = $4
+          id_status = $3,
+          confirmed_delivery_date = COALESCE($4, confirmed_delivery_date)
+      WHERE id = $5
       RETURNING *
     `;
-    const updateResult = await pool.query(updateQuery, [delivery_date, account_id, status_id, trafficId]);
+    const updateResult = await pool.query(updateQuery, [
+      delivery_date,
+      account_id,
+      status_id,
+      confirmedDeliveryDate,
+      trafficId
+    ]);
     
     // Atualiza os contatos, se fornecidos
     if (contacts && Array.isArray(contacts)) {
@@ -373,30 +422,30 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
       }
     }
     
-    // Insere um acompanhamento com os detalhes da atualização
-    const followupDescription = `Tráfego atualizado por ${req.user.username} em ${new Date().toLocaleDateString('pt-BR')}.<br>` + changeDescription;
+    // Registra um acompanhamento com os detalhes da atualização
+    const followupDescription = `Tráfego atualizado por ${req.user.username} em ${moment().format('DD/MM/YYYY')}.<br>${changeDescription}`;
     await pool.query(
       `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
        VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Atualizado')`,
       [trafficId, req.user.id, followupDescription]
     );
     
-    // Envia o e-mail de atualização com os detalhes e os 3 últimos acompanhamentos (excluindo o acompanhamento atual)
+    // Envia e-mail de atualização
     await enviarEmailAtualizacaoTrafego(trafficId, {
       changeDescription,
       userName: req.user.username
     });
     
-    res.json({ message: "Tráfego atualizado com sucesso.", traffic: updateResult.rows[0] });
+    return res.json({ message: "Tráfego atualizado com sucesso.", traffic: updateResult.rows[0] });
   } catch (error) {
     console.error("Erro ao atualizar tráfego:", error);
-    res.status(500).json({ error: "Erro ao atualizar tráfego." });
+    return res.status(500).json({ error: "Erro ao atualizar tráfego." });
   }
 });
 
-// --------------------------------------------------------------------------------------------------
-//           Rota de CADASTRO DE ACOMPANHAMENTOS, com envio de e-mail
-// --------------------------------------------------------------------------------------------------
+// ---------------------------------------
+//           Rota de Cadastro de Acompanhamentos
+// ---------------------------------------
 app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
     try {
       const trafficId = Number(req.params.id);
@@ -407,7 +456,6 @@ app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
         return res.status(400).json({ error: "Todos os campos são obrigatórios." });
       }
   
-      // Verifica se o tráfego existe
       const trafficExists = await pool.query("SELECT * FROM tb_traffic WHERE id = $1", [trafficId]);
       if (trafficExists.rows.length === 0) {
         return res.status(404).json({ error: "Tráfego não encontrado." });
@@ -432,16 +480,16 @@ app.post('/api/traffic/:id/followup', authenticateToken, async (req, res) => {
       });
   
       console.log("📧 E-mail enviado com sucesso para o novo acompanhamento.");
-      res.status(201).json({ message: "Acompanhamento cadastrado com sucesso." });
+      return res.status(201).json({ message: "Acompanhamento cadastrado com sucesso." });
     } catch (error) {
       console.error("🔴 Erro ao criar acompanhamento:", error);
-      res.status(500).json({ error: "Erro ao criar acompanhamento." });
+      return res.status(500).json({ error: "Erro ao criar acompanhamento." });
     }
-  });  
-
-// --------------------------------------------------------------------------------------------------
-//           Rota para EXCLUIR Tráfego, com acompanhamento, porém sem envio de e-mail
-// --------------------------------------------------------------------------------------------------
+});
+  
+// ---------------------------------------
+//           Rota para EXCLUIR Tráfego (alterando status para Excluído)
+// ---------------------------------------
 app.put('/api/traffic/:id/exclude', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
@@ -451,8 +499,7 @@ app.put('/api/traffic/:id/exclude', authenticateToken, async (req, res) => {
     if (req.user.level_id !== 1) {
       return res.status(403).json({ error: "Acesso negado. Apenas nível 1 pode excluir tráfegos." });
     }
-
-    // Atualiza o status do tráfego para 6 (Excluído)
+  
     const updateResult = await pool.query(
       "UPDATE tb_traffic SET id_status = 6 WHERE id = $1 RETURNING *",
       [trafficId]
@@ -460,30 +507,26 @@ app.put('/api/traffic/:id/exclude', authenticateToken, async (req, res) => {
     if (updateResult.rows.length === 0) {
       return res.status(404).json({ error: "Tráfego não encontrado." });
     }
-
-    // Registrar no acompanhamento
+  
     const userResult = await pool.query("SELECT name FROM tb_traffic_users WHERE id = $1", [userId]);
     const userName = userResult.rows.length > 0 ? userResult.rows[0].name : "Desconhecido";
     const followupText = `Tráfego excluído por ${userName} em ${new Date().toLocaleDateString('pt-BR')}.`;
-
     await pool.query(
       `INSERT INTO tb_traffic_followups (traffic_id, user_id, description, event_date, responsible_return)
        VALUES ($1, $2, $3, NOW() AT TIME ZONE 'America/Sao_Paulo', 'Excluído')`,
       [trafficId, userId, followupText]
     );
-
-    res.json({ message: "Tráfego excluído com sucesso." });
+  
+    return res.json({ message: "Tráfego excluído com sucesso." });
   } catch (error) {
     console.error("Erro ao excluir tráfego:", error);
-    res.status(500).json({ error: "Erro ao excluir tráfego." });
+    return res.status(500).json({ error: "Erro ao excluir tráfego." });
   }
 });
   
-
 // ---------------------------------------
 //           Rotas de Contatos
 // ---------------------------------------
-
 app.get('/api/traffic/:id/contacts', authenticateToken, async (req, res) => {
     try {
       const trafficId = Number(req.params.id);
@@ -494,42 +537,59 @@ app.get('/api/traffic/:id/contacts', authenticateToken, async (req, res) => {
         JOIN tb_contacts c ON tc.id_contact = c.id
         WHERE tc.id_traffic = $1
       `, [trafficId]);
-      console.log("📌 Contatos encontrados:", contactsResult.rows);
       const linkedContactIds = contactsResult.rows.map(c => c.id);
-      res.json({ contacts: contactsResult.rows, linkedContactIds });
+      return res.json({ contacts: contactsResult.rows, linkedContactIds });
     } catch (error) {
       console.error("🔴 Erro ao buscar contatos:", error);
-      res.status(500).json({ error: "Erro ao buscar contatos" });
+      return res.status(500).json({ error: "Erro ao buscar contatos" });
     }
-  });
-
+});
+  
 app.get('/api/contacts', authenticateToken, async (req, res) => {
     try {
         const contactsResult = await pool.query("SELECT id, name, email FROM tb_contacts");
-        res.json(contactsResult.rows);
+        return res.json(contactsResult.rows);
     } catch (error) {
         console.error("🔴 Erro ao buscar todos os contatos:", error);
-        res.status(500).json({ error: "Erro ao buscar contatos" });
+        return res.status(500).json({ error: "Erro ao buscar contatos" });
     }
 });
-
-
+  
+// ---------------------------------------
+//           Servir Frontend
+// ---------------------------------------
+const path = require("path");
+app.use(express.static(path.join(__dirname, "../frontend/dist")));
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/")) {
+    return next();
+  }
+  res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
+});
+  
+// ---------------------------------------
+//           Inicia o Servidor
+// ---------------------------------------
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🟢 Servidor rodando na porta ${PORT}`);
+});
+  
 // ---------------------------------------
 //           Funções Auxiliares
 // ---------------------------------------
-
 const getAccountName = async (accountId) => {
     if (!accountId) return "Desconhecido";
     const result = await pool.query('SELECT account_name FROM tb_accounts WHERE id = $1', [accountId]);
     return result.rows.length > 0 ? result.rows[0].account_name : "Desconhecido";
 };
-
+  
 const getStatusName = async (statusId) => {
     if (!statusId) return "Desconhecido";
     const result = await pool.query('SELECT status_name FROM tb_status WHERE id = $1', [statusId]);
     return result.rows.length > 0 ? result.rows[0].status_name : "Desconhecido";
 };
-
+  
 const getTrafficContacts = async (trafficId) => {
     const result = await pool.query(
         `SELECT c.email AS recipient_email, c.name AS recipient_name 
@@ -540,7 +600,7 @@ const getTrafficContacts = async (trafficId) => {
     );
     return result.rows;
 };
-
+  
 const enviarEmailCriacaoTrafego = async (trafficId, data) => {
   try {
     console.log(`📌 [enviarEmailCriacaoTrafego] Iniciando envio de notificação para tráfego ID: ${trafficId}`);
@@ -561,7 +621,7 @@ const enviarEmailCriacaoTrafego = async (trafficId, data) => {
       return;
     }
     const traffic = trafficResult.rows[0];
-
+  
     const contactsResult = await pool.query(
       `
       SELECT c.name, c.email
@@ -572,15 +632,13 @@ const enviarEmailCriacaoTrafego = async (trafficId, data) => {
       [trafficId]
     );
     if (contactsResult.rows.length === 0) return;
-
-    // Corpo do e-mail atualizado, com maior destaque para a comunicação do sistema
+  
     for (const contact of contactsResult.rows) {
       const corpoEmail = `
         <p>Olá, <strong>${contact.name}</strong>,</p>
         <p>Um novo tráfego foi registrado. Sua participação neste trabalho é 
         fundamental para alcançarmos o resultado esperado.</p>
         <p>Acompanhe tudo em tempo real pelo <strong>Traffic System</strong>.</p>  
-        
         <h3>📌 Capa do Tráfego</h3>
         <p>
           <strong>Data de Entrega:</strong> ${traffic.delivery_date}</p><br>
@@ -607,7 +665,7 @@ const enviarEmailCriacaoTrafego = async (trafficId, data) => {
           Felipe Almeida & Team | xFA vBeta 1</em>
         </p>
       `;
-
+  
       await transporter.sendMail({
         from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
         to: contact.email,
@@ -621,7 +679,7 @@ const enviarEmailCriacaoTrafego = async (trafficId, data) => {
     console.error("Erro ao enviar e-mail de criação:", error);
   }
 };
-
+  
 const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
   try {
     console.log(`📌 [enviarEmailNovoAcompanhamento] Iniciando envio de notificação para tráfego ID: ${trafficId}`);
@@ -639,7 +697,7 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
       return;
     }
     const traffic = trafficResult.rows[0];
-
+  
     const acompanhamentosResult = await pool.query(`
       SELECT f.description, TO_CHAR(f.event_date, 'DD/MM/YYYY') AS event_date, u.name AS user_name 
       FROM tb_traffic_followups f
@@ -648,11 +706,11 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
       ORDER BY f.event_date DESC 
       OFFSET 1 LIMIT 3
     `, [trafficId]);
-
+  
     const acompanhamentos = acompanhamentosResult.rows
       .map(a => `<p><strong>${a.event_date}</strong> | ${a.description} <em>(${a.user_name})</em></p>`)
       .join("") || "<p>Nenhum acompanhamento recente.</p>";
-
+  
     const contactsResult = await pool.query(`
       SELECT c.name, c.email
       FROM tb_traffic_contacts tc
@@ -664,23 +722,20 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
       return;
     }
     
-    // Gera a lista HTML dos contatos vinculados
     const contatosHTML = contactsResult.rows
       .map(c => `<li>${c.name} - ${c.email}</li>`)
       .join("");
-
+  
     const recipients = contactsResult.rows;
     console.log("[enviarEmailNovoAcompanhamento] ✅ Contatos carregados:", recipients);
-
+  
     for (const contact of recipients) {
       const corpoEmail = `
         <p>Olá, <strong>${contact.name}</strong>,</p>
         <p>Um novo acompanhamento foi registrado no Tráfego [${trafficId}]. Sua atenção nesse momento é essencial para garantirmos o melhor resultado.</p> 
         <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
-        
         <h3>🆕 Novo Acompanhamento</h3>
         <p><strong>${novoAcompanhamento.event_date}</strong> | ${novoAcompanhamento.description} <em>(${novoAcompanhamento.user_name})</em></p>
-        
         <h3>📌 Capa do Tráfego</h3>
         <p>
           <strong>Data de Entrega:</strong> ${traffic.delivery_date}<br>
@@ -688,14 +743,12 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
           <strong>Status:</strong> ${traffic.status_name}<br>
           <strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}
         </p>
-        
         <hr>
         <h3>📒 Contatos Vinculados:</h3>
         <ul>${contatosHTML}</ul>
         <hr>
         <h3>💬 Últimos Acompanhamentos</h3>
         ${acompanhamentos}
-        
         <hr>
         <p>
           <em>
@@ -719,10 +772,9 @@ const enviarEmailNovoAcompanhamento = async (trafficId, novoAcompanhamento) => {
     console.error("🔴 Erro ao enviar e-mail de acompanhamento:", error);
   }
 };
-
+  
 const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
   try {
-    // Busca os dados atuais do tráfego
     const trafficResult = await pool.query(`
       SELECT t.subject, t.description, 
              TO_CHAR(t.delivery_date, 'DD/MM/YYYY') AS delivery_date, 
@@ -735,7 +787,6 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
     if (trafficResult.rows.length === 0) return;
     const traffic = trafficResult.rows[0];
     
-    // Monta a lista dos contatos vinculados
     const contactsResult = await pool.query(`
       SELECT c.name, c.email
       FROM tb_traffic_contacts tc
@@ -745,7 +796,6 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
     if (contactsResult.rows.length === 0) return;
     const contatosHTML = contactsResult.rows.map(c => `<li>${c.name} - ${c.email}</li>`).join("");
     
-    // Busca os 3 últimos acompanhamentos, ignorando o mais recente (que é a atualização atual)
     const followupsResult = await pool.query(`
       SELECT f.description, TO_CHAR(f.event_date, 'DD/MM/YYYY') AS event_date, u.name AS user_name 
       FROM tb_traffic_followups f
@@ -763,17 +813,13 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
       acompanhamentosHTML = "<p>Nenhum acompanhamento recente.</p>";
     }
     
-    // Monta o corpo final do e-mail
     const corpoEmail = `
                 <p>Olá, <strong>${contact.name}</strong>,</p>
                 <p>O Tráfego [${trafficId}] foi atualizado e sua atenção nesse momento é essencial
                 para garantirmos o melhor resultado.</p> 
                 <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
-                
-
                 <h3>Detalhes da Atualização:</h3>
                 ${data.changeDescription}
-
                 <h3>📌 Capa do Tráfego</h3>
                 <p>
                   <strong>Data de Entrega:</strong> ${traffic.delivery_date}</p><br>
@@ -800,7 +846,6 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
                 </p>
     `;
     
-    // Envia o e-mail para cada contato
     for (const contact of contactsResult.rows) {
       await transporter.sendMail({
         from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
@@ -815,59 +860,3 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
     console.error("Erro ao enviar e-mail de atualização:", error);
   }
 };
-
-
-// ---------------------------------------
-//           Rotas de Contatos
-// ---------------------------------------
-
-app.get('/api/traffic/:id/contacts', authenticateToken, async (req, res) => {
-    try {
-        const trafficId = Number(req.params.id);
-        console.log(`🔍 Buscando contatos para o tráfego ID: ${id}`);
-        const contactsResult = await pool.query(`
-            SELECT c.id, c.name, c.email 
-            FROM tb_traffic_contacts tc
-            JOIN tb_contacts c ON tc.id_contact = c.id
-            WHERE tc.id_traffic = $1
-        `, [id]);
-        console.log("📌 Contatos encontrados:", contactsResult.rows);
-        const linkedContactIds = contactsResult.rows.map(c => c.id);
-        res.json({ contacts: contactsResult.rows, linkedContactIds });
-    } catch (error) {
-        console.error("🔴 Erro ao buscar contatos:", error);
-        res.status(500).json({ error: "Erro ao buscar contatos" });
-    }
-});
-
-app.get('/api/contacts', authenticateToken, async (req, res) => {
-    try {
-        const contactsResult = await pool.query("SELECT id, name, email FROM tb_contacts");
-        res.json(contactsResult.rows);
-    } catch (error) {
-        console.error("🔴 Erro ao buscar todos os contatos:", error);
-        res.status(500).json({ error: "Erro ao buscar contatos" });
-    }
-});
-
-const path = require("path");
-
-// Serve arquivos estáticos do frontend
-app.use(express.static(path.join(__dirname, "../frontend/dist")));
-
-// Garante que apenas rotas que NÃO são API vão para o React
-app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/api/")) {
-    return next(); // deixa seguir para o backend
-  }
-  res.sendFile(path.join(__dirname, "../frontend/dist", "index.html"));
-});
-
-// ---------------------------------------
-//           Inicia o Servidor
-// ---------------------------------------
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🟢 Servidor rodando na porta ${PORT}`);
-});
-
