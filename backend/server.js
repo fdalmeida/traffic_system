@@ -256,8 +256,6 @@ function validateStatusTransition(oldStatus, newStatus, userLevel) {
 // ---------------------------------------
 //           Rotas de Criação e Atualização de Tráfego
 // ---------------------------------------
-
-// Rota para CRIAR Tráfego
 app.post('/api/traffic', authenticateToken, async (req, res) => {
   try {
     // Apenas administradores (nível 1) podem criar tráfegos
@@ -329,13 +327,19 @@ app.post('/api/traffic', authenticateToken, async (req, res) => {
   }
 });
 
+// ---------------------------------------
+//           Rota de Atualização de Tráfego
+// ---------------------------------------
 app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
     const { delivery_date, account_id, status_id, contacts } = req.body;
     const newStatus = Number(status_id); // Converte para número
     
-    if (!delivery_date || !account_id || newStatus == null) {
+    // Converte delivery_date para o formato "YYYY-MM-DD"
+    const formattedDeliveryDate = new Date(delivery_date).toISOString().split("T")[0];
+
+if (!delivery_date || !account_id || newStatus == null) {
       return res.status(400).json({ error: "Campos obrigatórios ausentes." });
     }
     
@@ -407,7 +411,7 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
       RETURNING *
     `;
     const updateResult = await pool.query(updateQuery, [
-      delivery_date,
+      formattedDeliveryDate,  // usa a data formatada
       account_id,
       newStatus,
       confirmedDeliveryDate,
