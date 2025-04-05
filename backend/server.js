@@ -334,12 +334,12 @@ app.put('/api/traffic/:id', authenticateToken, async (req, res) => {
   try {
     const trafficId = Number(req.params.id);
     const { delivery_date, account_id, status_id, contacts } = req.body;
-    const newStatus = Number(status_id); // Converte para número
+    const newStatus = Number(status_id); // Já converte status para número
     
     // Converte delivery_date para o formato "YYYY-MM-DD"
     const formattedDeliveryDate = new Date(delivery_date).toISOString().split("T")[0];
-
-if (!delivery_date || !account_id || newStatus == null) {
+    
+    if (!formattedDeliveryDate || !account_id || newStatus == null) {
       return res.status(400).json({ error: "Campos obrigatórios ausentes." });
     }
     
@@ -417,6 +417,7 @@ if (!delivery_date || !account_id || newStatus == null) {
       confirmedDeliveryDate,
       trafficId
     ]);
+
     
     // Atualiza os contatos, se fornecidos
     if (contacts && Array.isArray(contacts)) {
@@ -817,40 +818,40 @@ const enviarEmailAtualizacaoTrafego = async (trafficId, data) => {
       acompanhamentosHTML = "<p>Nenhum acompanhamento recente.</p>";
     }
     
-    const corpoEmail = `
-                <p>Olá, <strong>${contact.name}</strong>,</p>
-                <p>O Tráfego [${trafficId}] foi atualizado e sua atenção nesse momento é essencial
-                para garantirmos o melhor resultado.</p> 
-                <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
-                <h3>Detalhes da Atualização:</h3>
-                ${data.changeDescription}
-                <h3>📌 Capa do Tráfego</h3>
-                <p>
-                  <strong>Data de Entrega:</strong> ${traffic.delivery_date}</p><br>
-                  <strong>Conta:</strong> ${traffic.account_name}</p><br>
-                  <strong>Status:</strong> ${traffic.status_name}</p><br>
-                  <strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}
-                </p>
-                <hr>
-                <h3>📒 Contatos Vinculados:</h3>
-                <ul>${contatosHTML}</ul>
-                <hr>
-                <h3>💬 Últimos Acompanhamentos:</h3>
-                ${acompanhamentosHTML}
-                <hr>
-                <p>
-                  <em>
-                    Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
-                    que garante transparência e qualidade em cada etapa do processo.
-                  </em>
-                </p>
-                <p>    
-                  <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | 
-                  Felipe Almeida & Team | xFA vBeta 1</em>
-                </p>
-    `;
-    
     for (const contact of contactsResult.rows) {
+      const corpoEmail = `
+        <p>Olá, <strong>${contact.name}</strong>,</p>
+        <p>O Tráfego [${trafficId}] foi atualizado e sua atenção nesse momento é essencial
+        para garantirmos o melhor resultado.</p> 
+        <p>Acesse o <strong>Traffic System</strong> e acompanhe tudo em tempo real.</p>                 
+        <h3>Detalhes da Atualização:</h3>
+        ${data.changeDescription}
+        <h3>📌 Capa do Tráfego</h3>
+        <p>
+          <strong>Data de Entrega:</strong> ${traffic.delivery_date}</p><br>
+          <strong>Conta:</strong> ${traffic.account_name}</p><br>
+          <strong>Status:</strong> ${traffic.status_name}</p><br>
+          <strong>Descrição:</strong> ${traffic.description.replace(/\n/g, "<br>")}
+        </p>
+        <hr>
+        <h3>📒 Contatos Vinculados:</h3>
+        <ul>${contatosHTML}</ul>
+        <hr>
+        <h3>💬 Últimos Acompanhamentos:</h3>
+        ${acompanhamentosHTML}
+        <hr>
+        <p>
+          <em>
+            Este e-mail faz parte da nossa comunicação automatizada e do sistema inteligente 
+            que garante transparência e qualidade em cada etapa do processo.
+          </em>
+        </p>
+        <p>    
+          <em><strong>Traffic System</strong> — BRUX & macrobrasil.com | 
+          Felipe Almeida & Team | xFA vBeta 1</em>
+        </p>
+      `;
+      
       await transporter.sendMail({
         from: '"Sistema de Tráfego" <no-reply@macrobrasil.com>',
         to: contact.email,

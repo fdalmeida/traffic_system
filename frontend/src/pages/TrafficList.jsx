@@ -73,7 +73,6 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
-//      console.log("VITE_API_URL no front:", import.meta.env.VITE_API_URL);
       const response = await axios.get(`${API_URL}/traffic`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -91,7 +90,7 @@ const TrafficList = () => {
     try {
       const token = localStorage.getItem("token");
       if (!token) return;
-        const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
+      const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
   
       const response = await axios.get(`${API_URL}/user-level`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -233,8 +232,8 @@ const TrafficList = () => {
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
       
       const response = await axios.post(
-      `${API_URL}/traffic`, // Remove o "/api" extra aqui
-      {
+        `${API_URL}/traffic`,
+        {
           subject: newTraffic.subject,
           description: newTraffic.description,
           account_id: Number(newTraffic.account_id),
@@ -269,7 +268,6 @@ const TrafficList = () => {
       if (!token) return;
       const API_URL = import.meta.env.VITE_API_URL || "https://trafficsystem-def333809a1f.herokuapp.com/api";
       
-      // Verifique os dados que serão enviados:
       const payload = {
         delivery_date: editTraffic.delivery_date,
         account_id: editTraffic.account_id,
@@ -280,13 +278,7 @@ const TrafficList = () => {
 
       const response = await axios.put(
         `${API_URL}/traffic/${editTraffic.id}`,
-        {
-          delivery_date: editTraffic.delivery_date,
-          account_id: editTraffic.account_id,
-          status_id: editTraffic.status_id,
-          contacts: selectedContacts,
-        },
-        
+        payload,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -432,7 +424,6 @@ const TrafficList = () => {
             Authorization: `Bearer ${token}`,
           },
         });
-        // console.log("Resposta da API em /accounts:", response.data);
         setAccounts(response.data || []);
       } catch (error) {
         console.error("Erro ao buscar contas:", error.response?.data || error.message);
@@ -484,15 +475,12 @@ const TrafficList = () => {
         <div className="mb-24"> 
           {filteredTraffic.length > 0 ? (
             filteredTraffic.map((t, index) => {
-              // Verifica se o tráfego está atrasado
               const isLate =
                 new Date(t.delivery_date) < new Date(todayISO) &&
                 t.status_id !== 3 &&
                 t.status_id !== 5 &&
                 t.status_id !== 6;
               const isSwiped = swipedId === t.id && canSwipe;
-
-              // Alterna cor de fundo ou vermelho claro se atrasado
               let bgClass = index % 2 === 0 ? "bg-gray-100" : "bg-white";
               if (isLate) {
                 bgClass = "bg-red-100";
@@ -529,7 +517,6 @@ const TrafficList = () => {
                     </p>
                   </div>
 
-                  {/* Botões de swipe (somente nível 1) */}
                   {canSwipe && (
                     <div
                       className="absolute top-0 right-0 h-full flex border-l border-gray-300 transition-all duration-300"
@@ -539,8 +526,7 @@ const TrafficList = () => {
                         className="w-1/2 bg-red-500 text-white flex items-center justify-center"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleExcludeTraffic(t.id)
-                          ;
+                          handleExcludeTraffic(t.id);
                         }}
                       >
                         <FaTrash size={20} />
@@ -564,15 +550,12 @@ const TrafficList = () => {
           )}
         </div>
 
-        {/* Botão Novo (flutuante) – se userLevel=1 e não há modal aberto */}
         {!(showTrafficModal || showEditModal) && userLevel === 1 && (
           <div className="fixed bottom-0 left-0 right-0 bg-white shadow p-2 z-50">
-            
             <div className="max-w-md mx-auto">
               <button
                 className="w-full bg-blue-500 text-white py-2 rounded"
                 onClick={() => setShowTrafficModal(true)}
-                
               >
                 Novo
               </button>
@@ -600,7 +583,6 @@ const TrafficList = () => {
             <h2 className="text-xl font-bold mb-4 text-center">Filtrar Tráfegos</h2>
             <hr className="border-t border-gray-300 mb-4" />
 
-            {/* Filtro por Conta */}
             <label className="block text-sm font-medium text-gray-400 mb-1">Conta</label>
             <select
               className="w-full p-2 border rounded mb-4"
@@ -615,7 +597,6 @@ const TrafficList = () => {
               ))}
             </select>
 
-            {/* Filtro por Situação */}
             <label className="block text-sm font-medium text-gray-400 mb-1">Situação</label>
             <select
               className="w-full p-2 border rounded mb-4"
@@ -632,7 +613,6 @@ const TrafficList = () => {
                 ))}
             </select>
 
-            {/* Filtro por Data de Entrega */}
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-400 mb-1">Data de Entrega (de)</label>
               <input
@@ -849,14 +829,18 @@ const TrafficList = () => {
                   ? new Date(editTraffic.delivery_date).toLocaleDateString("fr-CA")
                   : ""
               }
-              onChange={(e) => setEditTraffic({ ...editTraffic, delivery_date: e.target.value })}
+              onChange={(e) =>
+                setEditTraffic({ ...editTraffic, delivery_date: e.target.value })
+              }
             />
 
             <label className="block text-sm font-medium text-gray-500">Conta</label>
             <select
               className="w-full p-2 border rounded mb-2"
               value={editTraffic.account_id || ""}
-              onChange={(e) => setEditTraffic({ ...editTraffic, account_id: e.target.value })}
+              onChange={(e) =>
+                setEditTraffic({ ...editTraffic, account_id: Number(e.target.value) })
+              }
             >
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id}>
@@ -869,7 +853,9 @@ const TrafficList = () => {
             <select
               className="w-full p-2 border rounded mb-2"
               value={editTraffic.status_id || ""}
-              onChange={(e) => setEditTraffic({ ...editTraffic, status_id: e.target.value })}
+              onChange={(e) =>
+                setEditTraffic({ ...editTraffic, status_id: Number(e.target.value) })
+              }
             >
               {statuses.map((st) => (
                 <option key={st.id} value={st.id}>
@@ -894,7 +880,9 @@ const TrafficList = () => {
                       <button
                         className="text-red-500 font-bold"
                         onClick={() =>
-                          setSelectedContacts(selectedContacts.filter((id) => id !== contactId))
+                          setSelectedContacts(
+                            selectedContacts.filter((id) => id !== contactId)
+                          )
                         }
                       >
                         ❌
@@ -907,7 +895,6 @@ const TrafficList = () => {
               )}
             </div>
 
-            {/* Selecionar contatos adicionais */}
             <select
               multiple
               className="w-full p-2 border rounded mb-2"
